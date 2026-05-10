@@ -68,9 +68,11 @@
               </div>
             </div>
             <p id="roomStatus" class="room-status">Online rooms need the game server running.</p>
+            <p id="playerCountBadge" class="player-count-badge" hidden>0/4 players joined</p>
             <div id="inviteBox" class="invite-box" hidden>
               <input id="inviteLinkInput" readonly aria-label="Room invite link">
               <button id="copyInviteButton" type="button">Copy Link</button>
+              <button id="shareInviteButton" type="button">Share</button>
             </div>
             <button id="startRoomButton" type="button" hidden>Start Online Run</button>
           </div>
@@ -141,6 +143,7 @@
             <h2>Leaderboard</h2>
             <span id="leaderboardScope">Permanent history</span>
           </div>
+          <p id="visitorCounter" class="visitor-counter">Visitors: -</p>
           <div class="leaderboard-tabs" aria-label="Leaderboard run length">
             <button type="button" data-leaderboard-duration="60">1 min</button>
             <button type="button" data-leaderboard-duration="120">2 min</button>

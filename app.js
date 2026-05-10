@@ -19,6 +19,7 @@ const leaderboardList = document.querySelector("#leaderboardList");
 const leaderboardEmptyState = document.querySelector("#leaderboardEmptyState");
 const leaderboardScope = document.querySelector("#leaderboardScope");
 const leaderboardTabs = document.querySelectorAll("[data-leaderboard-duration]");
+const visitorCounter = document.querySelector("#visitorCounter");
 const backButton = document.querySelector("#backButton");
 const shuffleButton = document.querySelector("#shuffleButton");
 const clearButton = document.querySelector("#clearButton");
@@ -28,9 +29,11 @@ const joinRoomButton = document.querySelector("#joinRoomButton");
 const startRoomButton = document.querySelector("#startRoomButton");
 const roomCodeInput = document.querySelector("#roomCodeInput");
 const roomStatus = document.querySelector("#roomStatus");
+const playerCountBadge = document.querySelector("#playerCountBadge");
 const inviteBox = document.querySelector("#inviteBox");
 const inviteLinkInput = document.querySelector("#inviteLinkInput");
 const copyInviteButton = document.querySelector("#copyInviteButton");
+const shareInviteButton = document.querySelector("#shareInviteButton");
 const onlineScoreboard = document.querySelector("#onlineScoreboard");
 const timeUpBanner = document.querySelector("#timeUpBanner");
 const timeUpSummary = document.querySelector("#timeUpSummary");
@@ -68,6 +71,8 @@ const dictionaryCache = JSON.parse(localStorage.getItem("letterRunDictionaryCach
 const dictionaryCacheVersion = "v6";
 const browserWordSetCache = {};
 const leaderboardKey = "letterRunLeaderboard";
+const visitorKey = "letterRunVisitorId";
+const maxOnlinePlayers = 4;
 let leaderboard = JSON.parse(localStorage.getItem(leaderboardKey) || "[]");
 let letters = [];
 let foundWords = [];
@@ -127,9 +132,43 @@ function getInviteLink(code) {
   return url.toString();
 }
 
+function getVisitorId() {
+  let id = localStorage.getItem(visitorKey);
+  if (!id) {
+    id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(visitorKey, id);
+  }
+  return id;
+}
+
+function renderVisitorCounter(count) {
+  const safeCount = Math.max(0, Math.round(Number(count) || 0));
+  visitorCounter.textContent = `Visitors: ${safeCount}`;
+}
+
+async function registerVisitor() {
+  try {
+    const result = await api("/api/visitors", {
+      method: "POST",
+      body: JSON.stringify({ visitorId: getVisitorId() })
+    });
+    renderVisitorCounter(result.uniqueVisitors);
+  } catch {
+    renderVisitorCounter(1);
+  }
+}
+
 function showInviteLink(code) {
   inviteLinkInput.value = getInviteLink(code);
   inviteBox.hidden = false;
+}
+
+function updatePlayerCountBadge() {
+  playerCountBadge.hidden = !onlineRoom;
+  if (!onlineRoom) return;
+  const count = onlinePlayers.length;
+  const label = count === 1 ? "player" : "players";
+  playerCountBadge.textContent = `${count}/${maxOnlinePlayers} ${label} joined`;
 }
 
 function pick(items) {
@@ -777,6 +816,7 @@ function render() {
   renderLeaderboard();
   renderOnlineScoreboard();
   renderFinalPlayerRecap();
+  updatePlayerCountBadge();
   setPlayEnabled(gameState === "playing");
 }
 
@@ -1178,7 +1218,7 @@ async function createOnlineRoom() {
   bestPossibleText = "";
   timeUpDismissed = false;
   lastCountdownBeepSecond = null;
-  roomStatus.textContent = `Room ${room.code} ready. Share this code. Up to 3 players can join.`;
+  roomStatus.textContent = `Room ${room.code} ready. Share this code. Up to ${maxOnlinePlayers} players can join.`;
   showInviteLink(room.code);
   startRoomButton.hidden = false;
   applyRoomState(room);
@@ -1246,6 +1286,7 @@ function resetToSetup() {
   guessInput.value = "";
   setMessage("Enter your name, choose a run length, and start.");
   roomStatus.textContent = "Online rooms need the game server running.";
+  playerCountBadge.hidden = true;
   inviteBox.hidden = true;
   inviteLinkInput.value = "";
   startRoomButton.hidden = true;
@@ -1276,6 +1317,32 @@ copyInviteButton.addEventListener("click", async () => {
   } catch {
     inviteLinkInput.select();
     roomStatus.textContent = "Invite link selected.";
+  }
+});
+shareInviteButton.addEventListener("click", async () => {
+  const url = inviteLinkInput.value;
+  const text = onlineRoom ? `Join my Letter Run room ${onlineRoom.code}` : "Join my Letter Run room";
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: "Letter Run",
+        text,
+        url
+      });
+      roomStatus.textContent = "Invite shared.";
+      return;
+    } catch (error) {
+      if (error.name === "AbortError") return;
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(url);
+    roomStatus.textContent = "Sharing is not available here, so the invite link was copied.";
+  } catch {
+    inviteLinkInput.select();
+    roomStatus.textContent = "Sharing is not available here, so the invite link was selected.";
   }
 });
 leaderboardTabs.forEach((button) => {
@@ -1328,6 +1395,7 @@ if (touchLetterMedia.addEventListener) {
 }
 resetToSetup();
 loadSharedLeaderboard();
+registerVisitor();
 if (initialRoomCode) {
   roomCodeInput.value = initialRoomCode.toUpperCase();
 }

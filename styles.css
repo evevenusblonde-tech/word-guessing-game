@@ -310,7 +310,8 @@ h2 {
   background: linear-gradient(135deg, var(--accent), var(--grape));
 }
 
-.room-status {
+.room-status,
+.player-count-badge {
   min-height: 20px;
   margin: 0;
   color: var(--muted);
@@ -318,9 +319,19 @@ h2 {
   font-weight: 750;
 }
 
+.player-count-badge {
+  width: fit-content;
+  min-height: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(223, 236, 233, 0.9);
+  color: var(--accent-strong);
+  font-weight: 900;
+}
+
 .invite-box {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
 }
 
@@ -741,6 +752,17 @@ h2 {
   padding-top: 14px;
 }
 
+.visitor-counter {
+  width: fit-content;
+  margin: 12px 0 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(223, 236, 233, 0.9);
+  color: var(--accent-strong);
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
 .leaderboard-tabs button {
   min-height: 40px;
   border-radius: 8px;
@@ -1063,6 +1085,10 @@ h2 {
 
   .duration-options,
   .language-options {
+    grid-template-columns: 1fr;
+  }
+
+  .invite-box {
     grid-template-columns: 1fr;
   }
 

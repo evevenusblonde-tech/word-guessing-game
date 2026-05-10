@@ -9,8 +9,9 @@ const root = __dirname;
 const rooms = new Map();
 const wordListCache = new Map();
 const wordSetCache = new Map();
-const maxPlayersPerRoom = 3;
+const maxPlayersPerRoom = 4;
 const leaderboardPath = path.join(root, "data", "leaderboard.json");
+const visitorsPath = path.join(root, "data", "visitors.json");
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -297,7 +298,7 @@ function publicRoom(room, playerId) {
     runLength: room.runLength,
     letterCount: room.letterCount,
     language: room.language,
-    letters: room.letters,
+    letters: room.state === "waiting" ? [] : room.letters,
     secondsLeft: room.secondsLeft,
     players: room.players.map((player) => ({
       id: player.id,
@@ -377,6 +378,51 @@ function saveRoomLeaderboardEntries(room) {
   });
 }
 
+function readVisitors() {
+  try {
+    if (!fs.existsSync(visitorsPath)) return { totalVisits: 0, visitors: {} };
+    const data = JSON.parse(fs.readFileSync(visitorsPath, "utf8"));
+    return {
+      totalVisits: cleanScore(data.totalVisits),
+      visitors: data.visitors && typeof data.visitors === "object" ? data.visitors : {}
+    };
+  } catch {
+    return { totalVisits: 0, visitors: {} };
+  }
+}
+
+function writeVisitors(data) {
+  fs.mkdirSync(path.dirname(visitorsPath), { recursive: true });
+  fs.writeFileSync(visitorsPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+function cleanVisitorId(value) {
+  return String(value || "").replace(/[^a-zA-Z0-9:-]/g, "").slice(0, 80) || crypto.randomUUID();
+}
+
+function getVisitorStats() {
+  const data = readVisitors();
+  return {
+    uniqueVisitors: Object.keys(data.visitors).length,
+    totalVisits: data.totalVisits
+  };
+}
+
+function registerVisitor(visitorId) {
+  const data = readVisitors();
+  const id = cleanVisitorId(visitorId);
+  const now = Date.now();
+  const existing = data.visitors[id] || { firstSeen: now, visits: 0 };
+  data.visitors[id] = {
+    firstSeen: existing.firstSeen || now,
+    lastSeen: now,
+    visits: cleanScore(existing.visits) + 1
+  };
+  data.totalVisits = cleanScore(data.totalVisits) + 1;
+  writeVisitors(data);
+  return getVisitorStats();
+}
+
 function readBody(request) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -405,6 +451,15 @@ async function handleApi(request, response, pathname) {
       const body = await readBody(request);
       saveLeaderboardEntry(body);
       return sendJson(response, 200, { entries: sortLeaderboard(readLeaderboard()) });
+    }
+
+    if (request.method === "GET" && pathname === "/api/visitors") {
+      return sendJson(response, 200, getVisitorStats());
+    }
+
+    if (request.method === "POST" && pathname === "/api/visitors") {
+      const body = await readBody(request);
+      return sendJson(response, 200, registerVisitor(body.visitorId));
     }
 
     if (request.method === "POST" && pathname === "/api/validate-word") {
@@ -462,7 +517,7 @@ async function handleApi(request, response, pathname) {
       const room = rooms.get(code);
       if (!room) return sendJson(response, 404, { error: "Room not found." });
       if (room.state !== "waiting") return sendJson(response, 409, { error: "That room has already started." });
-      if (room.players.length >= maxPlayersPerRoom) return sendJson(response, 409, { error: "That room already has three players." });
+      if (room.players.length >= maxPlayersPerRoom) return sendJson(response, 409, { error: "That room already has four players." });
 
       const body = await readBody(request);
       const name = cleanName(body.name);
