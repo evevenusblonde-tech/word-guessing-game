@@ -5,6 +5,11 @@
   "scripts": {
     "start": "node preview-server.js"
   },
+  "dependencies": {
+    "an-array-of-italian-words": "^1.2.0",
+    "italian-words-dict": "^3.4.0",
+    "word-list": "^4.0.0"
+  },
   "engines": {
     "node": ">=18"
   }

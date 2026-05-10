@@ -10,6 +10,7 @@ const message = document.querySelector("#message");
 const scoreValue = document.querySelector("#scoreValue");
 const wordCountValue = document.querySelector("#wordCountValue");
 const letterCountValue = document.querySelector("#letterCountValue");
+const languageValue = document.querySelector("#languageValue");
 const longestValue = document.querySelector("#longestValue");
 const unusualValue = document.querySelector("#unusualValue");
 const wordList = document.querySelector("#wordList");
@@ -63,7 +64,8 @@ const letterValues = {
 };
 
 const dictionaryCache = JSON.parse(localStorage.getItem("letterRunDictionaryCache") || "{}");
-const dictionaryCacheVersion = "v2";
+const dictionaryCacheVersion = "v6";
+const browserWordSetCache = {};
 const leaderboardKey = "letterRunLeaderboard";
 let leaderboard = JSON.parse(localStorage.getItem(leaderboardKey) || "[]");
 let letters = [];
@@ -86,6 +88,36 @@ let feedbackTimer = null;
 let timeUpDismissed = false;
 let lastCountdownBeepSecond = null;
 let lastLetterRenderKey = "";
+const touchLetterMedia = window.matchMedia("(pointer: coarse), (max-width: 760px)");
+
+function usesTouchLetterEntry() {
+  return touchLetterMedia.matches;
+}
+
+function focusGuessInput() {
+  if (!usesTouchLetterEntry()) {
+    guessInput.focus();
+  }
+}
+
+function focusPlayerNameInput() {
+  if (!usesTouchLetterEntry()) {
+    playerNameInput.focus();
+  }
+}
+
+function updateGuessInputMode() {
+  const touchEntry = usesTouchLetterEntry();
+  guessInput.readOnly = touchEntry;
+  guessInput.inputMode = touchEntry ? "none" : "text";
+  guessInput.setAttribute("inputmode", touchEntry ? "none" : "text");
+  guessInput.setAttribute("aria-readonly", String(touchEntry));
+  guessInput.placeholder = touchEntry ? "Tap letters below" : "Type a word";
+  document.body.classList.toggle("touch-letter-entry", touchEntry);
+  if (touchEntry && document.activeElement === guessInput) {
+    guessInput.blur();
+  }
+}
 
 function getInviteLink(code) {
   const url = new URL(window.location.href);
@@ -252,30 +284,100 @@ async function validateWord(word) {
     return dictionaryCache[cacheKey];
   }
 
-  try {
-    const serverResult = await api("/api/validate-word", {
-      method: "POST",
-      body: JSON.stringify({
-        word,
-        language: gameLanguage
-      })
-    });
-    dictionaryCache[cacheKey] = Boolean(serverResult.valid);
-    localStorage.setItem("letterRunDictionaryCache", JSON.stringify(dictionaryCache));
-    return dictionaryCache[cacheKey];
-  } catch {
-    // Direct file play can still use the public dictionary API below.
+  if (gameLanguage === "it") {
+    try {
+      const serverResult = await api("/api/validate-word", {
+        method: "POST",
+        body: JSON.stringify({
+          word,
+          language: gameLanguage
+        })
+      });
+      dictionaryCache[cacheKey] = Boolean(serverResult.valid);
+      localStorage.setItem("letterRunDictionaryCache", JSON.stringify(dictionaryCache));
+      return dictionaryCache[cacheKey];
+    } catch {
+      const valid = await validateItalianWithWordList(word);
+      dictionaryCache[cacheKey] = valid;
+      localStorage.setItem("letterRunDictionaryCache", JSON.stringify(dictionaryCache));
+      return valid;
+    }
   }
 
   try {
-    const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/${gameLanguage}/${encodeURIComponent(word)}`);
-    const valid = response.ok;
+    const candidates = gameLanguage === "it" ? italianDictionaryCandidates(word) : [word];
+    let valid = false;
+
+    for (const candidate of candidates) {
+      const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/${gameLanguage}/${encodeURIComponent(candidate)}`);
+      if (response.ok) {
+        valid = true;
+        break;
+      }
+    }
+
     dictionaryCache[cacheKey] = valid;
     localStorage.setItem("letterRunDictionaryCache", JSON.stringify(dictionaryCache));
     return valid;
   } catch {
     throw new Error("Dictionary check needs an internet connection.");
   }
+}
+
+async function validateItalianWithWordList(word) {
+  const cleanWord = cleanGuess(word);
+  if (!browserWordSetCache.it) {
+    try {
+      const response = await fetchFirstDictionarySource([
+        "data/italian-words.txt",
+        "https://raw.githubusercontent.com/napolux/paroleitaliane/master/paroleitaliane/660000_parole_italiane.txt",
+        "https://raw.githubusercontent.com/napolux/paroleitaliane/master/paroleitaliane/280000_parole_italiane.txt",
+        "https://raw.githubusercontent.com/napolux/paroleitaliane/master/paroleitaliane/60000_parole_italiane.txt",
+        "https://cdn.jsdelivr.net/npm/italian-words-dict@3.4.0/dist/words.json",
+        "https://unpkg.com/italian-words-dict@3.4.0/dist/words.json"
+      ]);
+      const type = response.headers.get("content-type") || "";
+      const source = type.includes("json") ? await response.json() : await response.text();
+      browserWordSetCache.it = new Set(flattenWordSource(source).map(cleanGuess).filter(Boolean));
+    } catch {
+      browserWordSetCache.it = new Set();
+    }
+  }
+
+  if (browserWordSetCache.it.has(cleanWord)) return true;
+  return validateItalianWithWiktionarySection(cleanWord);
+}
+
+async function validateItalianWithWiktionarySection(word) {
+  for (const candidate of italianDictionaryCandidates(word)) {
+    const response = await fetch(`https://en.wiktionary.org/w/api.php?action=parse&format=json&origin=*&page=${encodeURIComponent(candidate)}&prop=sections`);
+    if (!response.ok) continue;
+    const data = await response.json();
+    const sections = data.parse?.sections || [];
+    if (sections.some((section) => section.line === "Italian")) return true;
+  }
+  return false;
+}
+
+function italianDictionaryCandidates(word) {
+  const candidates = new Set([word]);
+  const accents = {
+    a: ["\u00e0"],
+    e: ["\u00e8", "\u00e9"],
+    i: ["\u00ec"],
+    o: ["\u00f2"],
+    u: ["\u00f9"]
+  };
+  const lastVowelIndex = Math.max(...Object.keys(accents).map((vowel) => word.lastIndexOf(vowel)));
+
+  if (lastVowelIndex >= 0) {
+    const letter = word[lastVowelIndex];
+    accents[letter].forEach((accented) => {
+      candidates.add(`${word.slice(0, lastVowelIndex)}${accented}${word.slice(lastVowelIndex + 1)}`);
+    });
+  }
+
+  return Array.from(candidates);
 }
 
 async function fetchFirstDictionarySource(urls) {
@@ -461,8 +563,11 @@ function renderLetters() {
 
     tile.addEventListener("click", () => {
       if (gameState !== "playing") return;
+      const currentCounts = countLetters(cleanGuess(guessInput.value));
+      const availableCounts = countLetters(letters.join(""));
+      if ((currentCounts[letter] || 0) >= (availableCounts[letter] || 0)) return;
       guessInput.value = `${guessInput.value}${letter}`;
-      guessInput.focus();
+      focusGuessInput();
       renderLetters();
     });
 
@@ -479,6 +584,7 @@ function renderScore() {
   scoreValue.textContent = getTotalScore();
   wordCountValue.textContent = foundWords.length;
   letterCountValue.textContent = gameState === "setup" ? "-" : letterCount;
+  languageValue.textContent = gameState === "setup" ? "-" : languageNames[gameLanguage];
   longestValue.textContent = longest.word;
   unusualValue.textContent = unusual.word;
 }
@@ -706,7 +812,7 @@ async function submitGuess(event) {
       guessInput.value = "";
       playWrongSound();
       flashGameFeedback("bad");
-      setMessage("The live dictionary did not recognize that one.", "bad");
+      setMessage("The dictionary did not recognize that one.", "bad");
       renderLetters();
       return;
     }
@@ -738,7 +844,7 @@ async function submitGuess(event) {
   } finally {
     if (gameState === "playing") {
       submitButton.disabled = false;
-      guessInput.focus();
+      focusGuessInput();
     }
   }
 }
@@ -885,7 +991,7 @@ function endRun() {
   setMessage(`Time. ${playerName} scored ${getTotalScore()} points with ${foundWords.length} words.`, "good");
   render();
   findBestPossibleWord();
-  playerNameInput.focus();
+  focusPlayerNameInput();
 }
 
 async function endOnlineRun() {
@@ -927,7 +1033,7 @@ function startRun(event) {
   playerName = cleanName(playerNameInput.value);
   if (!playerName) {
     setMessage("Enter your name before starting.", "bad");
-    playerNameInput.focus();
+    focusPlayerNameInput();
     return;
   }
 
@@ -950,7 +1056,7 @@ function startRun(event) {
   setMessage(`${playerName}, your ${languageNames[gameLanguage]} ${runLength / 60} minute run is live with ${letterCount} letters.`, "good");
   render();
   startTimer();
-  guessInput.focus();
+  focusGuessInput();
 }
 
 function applyRoomState(room) {
@@ -1008,7 +1114,7 @@ async function createOnlineRoom() {
   playerName = cleanName(playerNameInput.value);
   if (!playerName) {
     setMessage("Enter your name before creating a room.", "bad");
-    playerNameInput.focus();
+    focusPlayerNameInput();
     return;
   }
 
@@ -1102,7 +1208,7 @@ function resetToSetup() {
   inviteLinkInput.value = "";
   startRoomButton.hidden = true;
   render();
-  playerNameInput.focus();
+  focusPlayerNameInput();
 }
 
 setupForm.addEventListener("submit", startRun);
@@ -1138,19 +1244,24 @@ leaderboardTabs.forEach((button) => {
 });
 guessForm.addEventListener("submit", submitGuess);
 guessInput.addEventListener("input", renderLetters);
+guessInput.addEventListener("focus", () => {
+  if (usesTouchLetterEntry()) {
+    guessInput.blur();
+  }
+});
 shuffleButton.addEventListener("click", () => {
   if (gameState !== "playing") return;
   letters = shuffle(letters);
   lastLetterRenderKey = "";
   renderLetters();
-  guessInput.focus();
+  focusGuessInput();
 });
 clearButton.addEventListener("click", () => {
   guessInput.value = "";
   setMessage("Cleared.");
   lastLetterRenderKey = "";
   renderLetters();
-  guessInput.focus();
+  focusGuessInput();
 });
 newRoundButton.addEventListener("click", resetToSetup);
 viewScoresButton.addEventListener("click", () => {
@@ -1160,6 +1271,12 @@ viewScoresButton.addEventListener("click", () => {
 playAgainButton.addEventListener("click", resetToSetup);
 
 const initialRoomCode = new URLSearchParams(window.location.search).get("room");
+updateGuessInputMode();
+if (touchLetterMedia.addEventListener) {
+  touchLetterMedia.addEventListener("change", updateGuessInputMode);
+} else {
+  touchLetterMedia.addListener(updateGuessInputMode);
+}
 resetToSetup();
 if (initialRoomCode) {
   roomCodeInput.value = initialRoomCode.toUpperCase();

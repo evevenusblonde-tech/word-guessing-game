@@ -93,6 +93,33 @@ input:disabled {
   text-transform: uppercase;
 }
 
+.run-language {
+  width: fit-content;
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(20, 125, 119, 0.22);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(223, 236, 233, 0.92), rgba(255, 244, 216, 0.92));
+  color: var(--accent-strong);
+  box-shadow: 0 10px 22px rgba(20, 125, 119, 0.1);
+}
+
+.run-language span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.run-language strong {
+  font-size: 0.95rem;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
 h1,
 h2 {
   margin: 0;
@@ -375,6 +402,12 @@ h2 {
   font-size: 1.2rem;
   font-weight: 750;
   text-transform: lowercase;
+}
+
+.touch-letter-entry .entry-row input {
+  caret-color: transparent;
+  cursor: default;
+  user-select: none;
 }
 
 .entry-row input:focus {
@@ -962,17 +995,57 @@ h2 {
 }
 
 @media (max-width: 560px) {
+  body {
+    background:
+      linear-gradient(135deg, rgba(20, 125, 119, 0.14) 0 34%, transparent 34% 100%),
+      linear-gradient(315deg, rgba(216, 86, 73, 0.12) 0 26%, transparent 26% 100%),
+      var(--paper);
+  }
+
   .game-shell {
-    width: min(100% - 20px, 1180px);
-    margin: 10px auto;
+    width: min(100% - 12px, 1180px);
+    margin: 6px auto 18px;
+    gap: 10px;
+  }
+
+  h1 {
+    font-size: 2.75rem;
+  }
+
+  .masthead {
+    gap: 10px;
   }
 
   .play-area {
-    padding: 18px;
+    padding: 16px;
+    gap: 18px;
+  }
+
+  .run-language {
+    margin-top: 10px;
+    padding: 7px 10px;
+  }
+
+  .icon-button {
+    width: 42px;
+    height: 42px;
   }
 
   .score-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .score-strip > div {
+    padding: 10px;
+  }
+
+  .metric-label {
+    margin-bottom: 3px;
+    font-size: 0.68rem;
+  }
+
+  .score-strip strong {
+    font-size: 1.25rem;
   }
 
   .duration-options,
@@ -981,14 +1054,34 @@ h2 {
   }
 
   .entry-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 92px;
   }
 
   .entry-row button {
     width: 100%;
+    min-width: 0;
+    padding: 0 12px;
+  }
+
+  .entry-row input,
+  .entry-row button {
+    min-height: 52px;
   }
 
   .letter-tray {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(54px, 1fr));
+    gap: 8px;
+  }
+
+  .letter-tile {
+    font-size: clamp(1.85rem, 12vw, 2.75rem);
+  }
+
+  .controls-row {
+    gap: 8px;
+  }
+
+  .controls-row button {
+    min-height: 42px;
   }
 }

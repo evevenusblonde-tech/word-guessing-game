@@ -7,14 +7,28 @@ const port = Number(process.env.PORT || 8123);
 const host = process.env.HOST || "0.0.0.0";
 const root = __dirname;
 const rooms = new Map();
+const wordListCache = new Map();
+const wordSetCache = new Map();
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8"
+  ".js": "text/javascript; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8"
 };
-const vowels = ["a", "e", "i", "o", "u"];
-const commonConsonants = "nnnnrrrrttttllllsssscccddppmmbbggfhvwy".split("");
-const rareLetters = "jkqxz".split("");
+const letterPools = {
+  en: {
+    vowels: ["a", "e", "i", "o", "u"],
+    commonConsonants: "nnnnrrrrttttllllsssscccddppmmbbggffhhvvwwyy".split(""),
+    rareLetters: "jkqxz".split(""),
+    vowelPlan: { 3: 1, 4: 1, 5: 2, 6: 2, 7: 2, 8: 3, 9: 3, 10: 3 }
+  },
+  it: {
+    vowels: ["a", "e", "i", "o", "u"],
+    commonConsonants: "nnnnrrrrttttllllssssccccddddpppmmmvvvbbbffgghh".split(""),
+    rareLetters: "qz".split(""),
+    vowelPlan: { 3: 1, 4: 2, 5: 2, 6: 2, 7: 3, 8: 3, 9: 4, 10: 4 }
+  }
+};
 
 function pick(items) {
   return items[Math.floor(Math.random() * items.length)];
@@ -29,13 +43,16 @@ function shuffle(items) {
   return copy;
 }
 
-function generateLetters(count) {
+function generateLetters(count, language = "en") {
+  const pool = letterPools[language] || letterPools.en;
   const set = [];
-  const guaranteedVowels = count >= 7 ? 3 : count >= 5 ? 2 : 1;
-  while (set.length < guaranteedVowels) set.push(pick(vowels));
-  if (count >= 7) set.push(pick(rareLetters));
+  const vowelCount = pool.vowelPlan[count] || Math.max(1, Math.round(count * 0.36));
+  const rareCount = count >= 7 && Math.random() < 0.55 ? 1 : 0;
+
+  while (set.length < vowelCount) set.push(pick(pool.vowels));
+  while (set.length < vowelCount + rareCount) set.push(pick(pool.rareLetters));
   while (set.length < count) {
-    set.push(Math.random() < 0.25 ? pick(vowels) : pick(commonConsonants));
+    set.push(pick(pool.commonConsonants));
   }
   return shuffle(set);
 }
@@ -55,6 +72,206 @@ function cleanRunLength(value) {
   return [60, 120, 180].includes(length) ? length : 60;
 }
 
+function cleanLanguage(value) {
+  return value === "it" ? "it" : "en";
+}
+
+function cleanGuess(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z]/g, "");
+}
+
+function countLetters(value) {
+  return [...value].reduce((counts, letter) => {
+    counts[letter] = (counts[letter] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function canBuildFromCounts(word, available) {
+  const needed = countLetters(word);
+  return Object.entries(needed).every(([letter, count]) => available[letter] >= count);
+}
+
+function rarityScore(word) {
+  const values = {
+    a: 1, b: 3, c: 3, d: 2, e: 1, f: 4, g: 2, h: 4, i: 1, j: 8, k: 5,
+    l: 1, m: 3, n: 1, o: 1, p: 3, q: 10, r: 1, s: 1, t: 1, u: 1, v: 4,
+    w: 4, x: 8, y: 4, z: 10
+  };
+  const uniqueLetters = new Set(word).size;
+  return [...word].reduce((sum, letter) => sum + (values[letter] || 0), 0) + Math.max(0, uniqueLetters - 4) * 2;
+}
+
+async function fetchFirstAvailable(urls) {
+  let lastError = new Error("No dictionary source available.");
+  for (const url of urls) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Dictionary source failed: ${response.status}`);
+      return response;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+function flattenWords(source) {
+  if (Array.isArray(source)) {
+    return source.flatMap((item) => {
+      if (typeof item === "string") return item;
+      if (Array.isArray(item)) return flattenWords(item);
+      if (item && typeof item === "object") return Object.values(item).flatMap(flattenWords);
+      return [];
+    });
+  }
+
+  if (source && typeof source === "object") {
+    return Object.values(source).flatMap(flattenWords);
+  }
+
+  if (typeof source === "string") {
+    return source.split(/\r?\n/);
+  }
+
+  return [];
+}
+
+async function getWordList(language) {
+  if (wordListCache.has(language)) return wordListCache.get(language);
+
+  if (language === "it") {
+    const localItalianPath = path.join(root, "data", "italian-words.txt");
+    if (fs.existsSync(localItalianPath)) {
+      const words = fs.readFileSync(localItalianPath, "utf8").split(/\r?\n/).map(cleanGuess).filter(Boolean);
+      wordListCache.set(language, words);
+      return words;
+    }
+  }
+
+  try {
+    if (language === "it") {
+      let italianWords;
+      try {
+        italianWords = require("italian-words-dict/dist/words.json");
+      } catch {
+        italianWords = require("an-array-of-italian-words");
+      }
+      const words = flattenWords(italianWords).map(cleanGuess).filter(Boolean);
+      wordListCache.set(language, words);
+      return words;
+    }
+
+    const wordListPath = require("word-list");
+    const words = fs.readFileSync(wordListPath, "utf8").split(/\r?\n/).map(cleanGuess).filter(Boolean);
+    wordListCache.set(language, words);
+    return words;
+  } catch {
+    // Hosted installs use local packages; direct file use can still fall back to CDNs.
+  }
+
+  const response = await fetchFirstAvailable(language === "it"
+    ? [
+      "https://raw.githubusercontent.com/napolux/paroleitaliane/master/paroleitaliane/660000_parole_italiane.txt",
+      "https://raw.githubusercontent.com/napolux/paroleitaliane/master/paroleitaliane/280000_parole_italiane.txt",
+      "https://raw.githubusercontent.com/napolux/paroleitaliane/master/paroleitaliane/60000_parole_italiane.txt",
+      "https://cdn.jsdelivr.net/npm/italian-words-dict@3.4.0/dist/words.json",
+      "https://unpkg.com/italian-words-dict@3.4.0/dist/words.json"
+    ]
+    : [
+      "https://cdn.jsdelivr.net/gh/dwyl/english-words@master/words_alpha.txt",
+      "https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt"
+    ]);
+  const type = response.headers.get("content-type") || "";
+  const source = type.includes("json") ? await response.json() : await response.text();
+  const words = flattenWords(source).map(cleanGuess).filter(Boolean);
+  wordListCache.set(language, words);
+  return words;
+}
+
+async function isValidDictionaryWord(word, language) {
+  const cleanWord = cleanGuess(word);
+  if (cleanWord.length < 2) return false;
+
+  if (!wordSetCache.has(language)) {
+    let words = [];
+    try {
+      words = await getWordList(language);
+    } catch {
+      words = [];
+    }
+    wordSetCache.set(language, new Set(words));
+  }
+
+  if (wordSetCache.get(language).has(cleanWord)) return true;
+  if (language === "it") return validateItalianWithWiktionarySection(cleanWord);
+  return false;
+}
+
+function italianAccentCandidates(word) {
+  const candidates = new Set([word]);
+  const accents = {
+    a: ["\u00e0"],
+    e: ["\u00e8", "\u00e9"],
+    i: ["\u00ec"],
+    o: ["\u00f2"],
+    u: ["\u00f9"]
+  };
+  const lastVowelIndex = Math.max(...Object.keys(accents).map((vowel) => word.lastIndexOf(vowel)));
+  if (lastVowelIndex >= 0) {
+    const letter = word[lastVowelIndex];
+    accents[letter].forEach((accented) => {
+      candidates.add(`${word.slice(0, lastVowelIndex)}${accented}${word.slice(lastVowelIndex + 1)}`);
+    });
+  }
+  return Array.from(candidates);
+}
+
+async function validateItalianWithWiktionarySection(word) {
+  for (const candidate of italianAccentCandidates(word)) {
+    try {
+      const response = await fetch(`https://en.wiktionary.org/w/api.php?action=parse&format=json&origin=*&page=${encodeURIComponent(candidate)}&prop=sections`);
+      if (!response.ok) continue;
+      const data = await response.json();
+      const sections = data.parse?.sections || [];
+      if (sections.some((section) => section.line === "Italian")) return true;
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return false;
+}
+
+async function findBestPossibleWord(letters, language, foundWords = []) {
+  let words = [];
+  try {
+    words = await getWordList(language);
+  } catch {
+    words = [];
+  }
+  const available = countLetters(letters.join(""));
+  const maxLength = letters.length;
+  let best = "";
+  let bestRarity = -1;
+
+  [...words, ...foundWords.map(cleanGuess)].forEach((word) => {
+    if (word.length < 2 || word.length > maxLength || word.length < best.length) return;
+    if (!canBuildFromCounts(word, available)) return;
+
+    const rarity = rarityScore(word);
+    if (word.length > best.length || rarity > bestRarity) {
+      best = word;
+      bestRarity = rarity;
+    }
+  });
+
+  return best ? { word: best, length: best.length } : { word: "", length: 0 };
+}
+
 function makeCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
@@ -72,6 +289,7 @@ function publicRoom(room, playerId) {
     state: room.state,
     runLength: room.runLength,
     letterCount: room.letterCount,
+    language: room.language,
     letters: room.letters,
     secondsLeft: room.secondsLeft,
     players: room.players.map((player) => ({
@@ -117,6 +335,24 @@ function readBody(request) {
 
 async function handleApi(request, response, pathname) {
   try {
+    if (request.method === "POST" && pathname === "/api/validate-word") {
+      const body = await readBody(request);
+      const language = cleanLanguage(body.language);
+      const word = cleanGuess(body.word);
+      const valid = await isValidDictionaryWord(word, language);
+      return sendJson(response, 200, { valid });
+    }
+
+    if (request.method === "POST" && pathname === "/api/best-word") {
+      const body = await readBody(request);
+      const language = cleanLanguage(body.language);
+      const letters = Array.isArray(body.letters) ? body.letters.map(cleanGuess).filter(Boolean) : [];
+      const foundWords = Array.isArray(body.foundWords) ? body.foundWords.map(cleanGuess).filter(Boolean) : [];
+      if (!letters.length) return sendJson(response, 400, { error: "Letters are required." });
+      const best = await findBestPossibleWord(letters, language, foundWords);
+      return sendJson(response, 200, best);
+    }
+
     if (request.method === "POST" && pathname === "/api/rooms") {
       const body = await readBody(request);
       const name = cleanName(body.name);
@@ -125,13 +361,15 @@ async function handleApi(request, response, pathname) {
       const code = makeCode();
       const playerId = crypto.randomUUID();
       const letterCount = cleanLetterCount(body.letterCount);
+      const language = cleanLanguage(body.language);
       const room = {
         code,
         hostId: playerId,
         state: "waiting",
         runLength: cleanRunLength(body.runLength),
         letterCount,
-        letters: generateLetters(letterCount),
+        language,
+        letters: generateLetters(letterCount, language),
         secondsLeft: 0,
         endsAt: 0,
         players: [{
@@ -204,6 +442,21 @@ async function handleApi(request, response, pathname) {
         player.score += points;
         player.words += 1;
       }
+      return sendJson(response, 200, publicRoom(room, body.playerId));
+    }
+
+    const finishMatch = pathname.match(/^\/api\/rooms\/([A-Z0-9]+)\/finish$/);
+    if (request.method === "POST" && finishMatch) {
+      const code = finishMatch[1];
+      const room = rooms.get(code);
+      if (!room) return sendJson(response, 404, { error: "Room not found." });
+
+      const body = await readBody(request);
+      const player = room.players.find((item) => item.id === body.playerId);
+      if (!player) return sendJson(response, 404, { error: "Player not found." });
+
+      player.score = Math.max(0, Math.round(Number(body.score) || player.score));
+      player.words = Math.max(0, Math.round(Number(body.words) || player.words));
       return sendJson(response, 200, publicRoom(room, body.playerId));
     }
 
