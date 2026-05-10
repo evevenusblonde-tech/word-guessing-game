@@ -10,6 +10,7 @@ const rooms = new Map();
 const wordListCache = new Map();
 const wordSetCache = new Map();
 const maxPlayersPerRoom = 4;
+const startCountdownSeconds = 5;
 const leaderboardPath = path.join(root, "data", "leaderboard.json");
 const visitorsPath = path.join(root, "data", "visitors.json");
 const types = {
@@ -291,31 +292,175 @@ function makeCode() {
 
 function publicRoom(room, playerId) {
   updateRoomClock(room);
+  const currentPlayer = room.players.find((player) => player.id === playerId);
+  const playerStatus = currentPlayer ? currentPlayer.status || "waiting" : "waiting";
+  const canSeeLetters = room.state === "finished" || playerStatus === "playing" || playerStatus === "done";
   return {
     code: room.code,
     playerId,
     state: room.state,
+    runNumber: room.runNumber || 0,
     runLength: room.runLength,
     letterCount: room.letterCount,
     language: room.language,
-    letters: room.state === "waiting" ? [] : room.letters,
-    secondsLeft: room.secondsLeft,
+    letters: canSeeLetters ? room.letters : [],
+    secondsLeft: currentPlayer ? currentPlayer.secondsLeft || 0 : room.secondsLeft,
+    endsAt: currentPlayer ? currentPlayer.endsAt || 0 : room.endsAt,
+    playerStatus,
+    serverNow: Date.now(),
+    countdownLeft: room.state === "countdown" ? Math.max(0, Math.ceil((room.countdownEndsAt - Date.now()) / 1000)) : 0,
+    playAgain: {
+      count: room.playAgainRequests ? room.playAgainRequests.size : 0,
+      total: room.players.length,
+      requested: room.playAgainRequests ? room.playAgainRequests.has(playerId) : false
+    },
     players: room.players.map((player) => ({
       id: player.id,
       name: player.name,
       score: player.score,
       words: player.words,
+      status: player.status || "waiting",
+      secondsLeft: player.secondsLeft || 0,
+      roomLongestBonus: Boolean(player.roomLongestBonus),
+      roomLongestWord: player.roomLongestWord || "",
       foundWords: Array.from(player.wordSet)
     }))
   };
 }
 
 function updateRoomClock(room) {
-  if (room.state !== "playing") return;
-  room.secondsLeft = Math.max(0, Math.ceil((room.endsAt - Date.now()) / 1000));
-  if (room.secondsLeft <= 0) {
-    room.state = "finished";
+  if (room.state === "countdown") {
+    const countdownLeft = Math.ceil((room.countdownEndsAt - Date.now()) / 1000);
+    if (countdownLeft <= 0) {
+      startRoomRun(room);
+    }
+    return;
   }
+
+  if (room.state !== "ready" && room.state !== "playing") return;
+
+  const now = Date.now();
+  room.players.forEach((player) => {
+    if (player.status === "playing") {
+      player.secondsLeft = Math.max(0, Math.ceil((player.endsAt - now) / 1000));
+      if (player.secondsLeft <= 0) {
+        player.status = "done";
+        player.secondsLeft = 0;
+      }
+    } else if (player.status === "ready") {
+      player.secondsLeft = room.runLength;
+    } else if (player.status === "done") {
+      player.secondsLeft = 0;
+    }
+  });
+
+  const hasPlaying = room.players.some((player) => player.status === "playing");
+  const hasStarted = room.players.some((player) => player.status === "playing" || player.status === "done");
+  const allDone = room.players.length > 0 && room.players.every((player) => player.status === "done");
+
+  room.state = hasPlaying || hasStarted ? "playing" : "ready";
+  room.secondsLeft = hasPlaying
+    ? Math.max(...room.players.filter((player) => player.status === "playing").map((player) => player.secondsLeft))
+    : room.runLength;
+
+  if (allDone) {
+    room.state = "finished";
+    finalizeRoomScores(room);
+  }
+}
+
+function finalizeRoomScores(room) {
+  if (room.finalized) return;
+  room.finalized = true;
+  let roomLongestLength = 0;
+
+  room.players.forEach((player) => {
+    const entries = player.wordEntries || [];
+    entries.forEach((entry) => {
+      entry.longestBonus = false;
+      entry.unusualBonus = false;
+      entry.roomLongestBonus = false;
+      entry.points = entry.basePoints;
+    });
+
+    let longest = null;
+    let unusual = null;
+    entries.forEach((entry) => {
+      if (!longest || entry.word.length > longest.word.length) longest = entry;
+      if (!unusual || entry.rarity > unusual.rarity) unusual = entry;
+    });
+
+    if (longest) {
+      longest.longestBonus = true;
+      longest.points += 15;
+    }
+    if (unusual) {
+      unusual.unusualBonus = true;
+      unusual.points += 15;
+    }
+
+    player.roomLongestWord = longest ? longest.word : "";
+    if (longest) {
+      roomLongestLength = Math.max(roomLongestLength, longest.word.length);
+    }
+  });
+
+  room.players.forEach((player) => {
+    const entries = player.wordEntries || [];
+    entries
+      .filter((entry) => roomLongestLength > 0 && entry.word.length === roomLongestLength)
+      .forEach((entry) => {
+        entry.roomLongestBonus = true;
+        entry.points += 15;
+      });
+    player.score = entries.reduce((sum, entry) => sum + entry.points, 0);
+    player.words = entries.length;
+    player.roomLongestBonus = entries.some((entry) => entry.roomLongestBonus);
+  });
+
+  saveRoomLeaderboardEntries(room);
+}
+
+function chooseRoomPlayers(room, playerIds = null) {
+  if (playerIds) {
+    const nextPlayers = room.players.filter((player) => playerIds.has(player.id));
+    if (nextPlayers.length >= 2) {
+      room.players = nextPlayers;
+      if (!room.players.some((player) => player.id === room.hostId)) {
+        room.hostId = room.players[0].id;
+      }
+    }
+  }
+}
+
+function startRoomCountdown(room, playerIds = null) {
+  chooseRoomPlayers(room, playerIds);
+  room.state = "countdown";
+  room.letters = [];
+  room.secondsLeft = room.runLength;
+  room.countdownEndsAt = Date.now() + startCountdownSeconds * 1000;
+}
+
+function startRoomRun(room) {
+  room.state = "ready";
+  room.finalized = false;
+  room.runNumber = (room.runNumber || 0) + 1;
+  room.letters = generateLetters(room.letterCount, room.language);
+  room.secondsLeft = room.runLength;
+  room.endsAt = 0;
+  room.playAgainRequests = new Set();
+  room.players.forEach((player) => {
+    player.score = 0;
+    player.words = 0;
+    player.roomLongestBonus = false;
+    player.roomLongestWord = "";
+    player.wordSet = new Set();
+    player.wordEntries = [];
+    player.status = "ready";
+    player.startedAt = 0;
+    player.endsAt = 0;
+    player.secondsLeft = room.runLength;
+  });
 }
 
 function sendJson(response, status, data) {
@@ -365,7 +510,7 @@ function saveLeaderboardEntry(entry) {
 function saveRoomLeaderboardEntries(room) {
   room.players.forEach((player) => {
     saveLeaderboardEntry({
-      id: `${room.code}:${player.id}`,
+      id: `${room.code}:${room.runNumber || 1}:${player.id}`,
       name: player.name,
       score: player.score,
       words: player.words,
@@ -499,12 +644,23 @@ async function handleApi(request, response, pathname) {
         letters: generateLetters(letterCount, language),
         secondsLeft: 0,
         endsAt: 0,
+        countdownEndsAt: 0,
+        finalized: false,
+        runNumber: 0,
+        playAgainRequests: new Set(),
         players: [{
           id: playerId,
           name,
           score: 0,
           words: 0,
-          wordSet: new Set()
+          roomLongestBonus: false,
+          roomLongestWord: "",
+          wordSet: new Set(),
+          wordEntries: [],
+          status: "waiting",
+          startedAt: 0,
+          endsAt: 0,
+          secondsLeft: 0
         }]
       };
       rooms.set(code, room);
@@ -529,7 +685,14 @@ async function handleApi(request, response, pathname) {
         name,
         score: 0,
         words: 0,
-        wordSet: new Set()
+        roomLongestBonus: false,
+        roomLongestWord: "",
+        wordSet: new Set(),
+        wordEntries: [],
+        status: "waiting",
+        startedAt: 0,
+        endsAt: 0,
+        secondsLeft: 0
       });
       return sendJson(response, 200, publicRoom(room, playerId));
     }
@@ -544,9 +707,52 @@ async function handleApi(request, response, pathname) {
       if (body.playerId !== room.hostId) return sendJson(response, 403, { error: "Only the room creator can start." });
       if (room.players.length < 2) return sendJson(response, 409, { error: "Wait for at least one more player to join." });
 
+      startRoomCountdown(room);
+      return sendJson(response, 200, publicRoom(room, body.playerId));
+    }
+
+    const beginMatch = pathname.match(/^\/api\/rooms\/([A-Z0-9]+)\/begin$/);
+    if (request.method === "POST" && beginMatch) {
+      const code = beginMatch[1];
+      const room = rooms.get(code);
+      if (!room) return sendJson(response, 404, { error: "Room not found." });
+      updateRoomClock(room);
+      if (room.state !== "ready" && room.state !== "playing") {
+        return sendJson(response, 409, { error: "The online run is not ready yet." });
+      }
+
+      const body = await readBody(request);
+      const player = room.players.find((item) => item.id === body.playerId);
+      if (!player) return sendJson(response, 404, { error: "Player not found." });
+      if (player.status === "playing") return sendJson(response, 200, publicRoom(room, body.playerId));
+      if (player.status === "done") return sendJson(response, 409, { error: "Your timer has already ended." });
+
+      const now = Date.now();
+      player.status = "playing";
+      player.startedAt = now;
+      player.endsAt = now + room.runLength * 1000;
+      player.secondsLeft = room.runLength;
       room.state = "playing";
-      room.secondsLeft = room.runLength;
-      room.endsAt = Date.now() + room.runLength * 1000;
+      return sendJson(response, 200, publicRoom(room, body.playerId));
+    }
+
+    const playAgainMatch = pathname.match(/^\/api\/rooms\/([A-Z0-9]+)\/play-again$/);
+    if (request.method === "POST" && playAgainMatch) {
+      const code = playAgainMatch[1];
+      const room = rooms.get(code);
+      if (!room) return sendJson(response, 404, { error: "Room not found." });
+      updateRoomClock(room);
+      if (room.state !== "finished") return sendJson(response, 409, { error: "Wait until this run is over." });
+
+      const body = await readBody(request);
+      const player = room.players.find((item) => item.id === body.playerId);
+      if (!player) return sendJson(response, 404, { error: "Player not found." });
+
+      room.playAgainRequests = room.playAgainRequests || new Set();
+      room.playAgainRequests.add(player.id);
+      if (room.playAgainRequests.size >= 2) {
+        startRoomCountdown(room, room.playAgainRequests);
+      }
       return sendJson(response, 200, publicRoom(room, body.playerId));
     }
 
@@ -561,11 +767,22 @@ async function handleApi(request, response, pathname) {
       const body = await readBody(request);
       const player = room.players.find((item) => item.id === body.playerId);
       if (!player) return sendJson(response, 404, { error: "Player not found." });
+      if (player.status !== "playing") return sendJson(response, 409, { error: "Start your timer before guessing." });
 
       const word = String(body.word || "").toLowerCase().replace(/[^a-z]/g, "");
       const points = Math.max(0, Math.round(Number(body.points) || 0));
       if (word && !player.wordSet.has(word)) {
         player.wordSet.add(word);
+        player.wordEntries = player.wordEntries || [];
+        player.wordEntries.push({
+          word,
+          basePoints: points,
+          points,
+          rarity: rarityScore(word),
+          longestBonus: false,
+          unusualBonus: false,
+          createdAt: Date.now()
+        });
         player.score += points;
         player.words += 1;
       }
@@ -582,9 +799,15 @@ async function handleApi(request, response, pathname) {
       const player = room.players.find((item) => item.id === body.playerId);
       if (!player) return sendJson(response, 404, { error: "Player not found." });
 
-      player.score = Math.max(0, Math.round(Number(body.score) || player.score));
-      player.words = Math.max(0, Math.round(Number(body.words) || player.words));
-      saveRoomLeaderboardEntries(room);
+      updateRoomClock(room);
+      if (player.status === "playing") {
+        player.status = "done";
+        player.secondsLeft = 0;
+      }
+      updateRoomClock(room);
+      if (room.state === "finished") {
+        finalizeRoomScores(room);
+      }
       return sendJson(response, 200, publicRoom(room, body.playerId));
     }
 

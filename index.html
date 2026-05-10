@@ -18,7 +18,10 @@
               <strong id="languageValue">-</strong>
             </div>
           </div>
-          <button id="newRoundButton" class="restart-button" type="button">Restart game</button>
+          <div class="masthead-actions">
+            <button id="howToPlayButton" class="help-button" type="button">How to Play</button>
+            <button id="newRoundButton" class="restart-button" type="button">Restart game</button>
+          </div>
         </header>
 
         <form id="setupForm" class="setup-panel">
@@ -78,6 +81,11 @@
           </div>
         </form>
 
+        <div id="onlineStartPanel" class="online-start-panel" hidden>
+          <p id="onlineStartText">The online run is ready.</p>
+          <button id="startPlayerButton" type="button">Start My Timer</button>
+        </div>
+
         <div class="score-strip" aria-label="Game score">
           <div>
             <span class="metric-label">Time</span>
@@ -130,7 +138,7 @@
         <div class="panel-section found-section">
           <div class="panel-heading">
             <h2>Found Words</h2>
-            <span id="bonusHint">+15 longest, +15 most unusual</span>
+            <span id="bonusHint">+15 longest, +15 unusual, +15 room longest</span>
           </div>
           <ol id="wordList" class="word-list"></ol>
           <div id="emptyState" class="empty-state">Valid guesses will appear here with their bonuses.</div>
@@ -158,14 +166,59 @@
         <div class="time-up-popup">
           <strong id="timeUpTitle">Time is up</strong>
           <em id="recordBadge" hidden>New Record!</em>
+          <div id="winnerBanner" class="winner-banner" hidden></div>
           <span id="timeUpSummary">Final score: 0</span>
           <span id="bestPossibleWord">Best possible word: checking...</span>
           <div id="finalPlayerRecap" class="final-player-recap" hidden></div>
+          <span id="playAgainStatus" class="play-again-status" hidden>0/0 players want another run.</span>
           <div class="time-up-actions">
-            <button id="viewScoresButton" type="button">View Scores</button>
+            <button id="viewScoresButton" type="button">View Leaderboard</button>
+            <button id="playAgainRequestButton" type="button" hidden>Play Again</button>
             <button id="playAgainButton" type="button">New Run</button>
           </div>
         </div>
+      </div>
+
+      <div id="startCountdownBanner" class="start-countdown-overlay" role="status" aria-live="assertive" hidden>
+        <div class="start-countdown-popup">
+          <strong id="startCountdownText">Game will start in 5</strong>
+        </div>
+      </div>
+
+      <div id="howToPlayModal" class="rules-overlay" role="dialog" aria-modal="true" aria-labelledby="rulesTitle" hidden>
+        <section class="rules-popup">
+          <div class="rules-heading">
+            <strong id="rulesTitle">How to Play</strong>
+            <button id="closeRulesButton" type="button" aria-label="Close rules">Close</button>
+          </div>
+          <div class="rules-content">
+            <div>
+              <h3>Goal</h3>
+              <p>Find as many valid words as you can before your timer ends. Words can be as short as 2 letters.</p>
+            </div>
+            <div>
+              <h3>Letters</h3>
+              <p>Choose 3 to 10 letters at the start. Every word must use only the available letters, and each tile can only be used as many times as it appears.</p>
+            </div>
+            <div>
+              <h3>Scoring</h3>
+              <p>Each accepted word scores from its length and letter rarity: 2 points per letter, plus a rarity bonus based on the letters used.</p>
+              <ul>
+                <li>+15 for your longest word at the end of the run.</li>
+                <li>+15 for your most unusual word at the end of the run.</li>
+                <li>In online rooms, +15 goes to the player or players with the longest word among everyone.</li>
+              </ul>
+            </div>
+            <div>
+              <h3>Online Rooms</h3>
+              <p>The host opens the room, then each player taps Start My Timer when ready. Scores are finalized only after every active player has finished.</p>
+            </div>
+            <div>
+              <h3>Leaderboards</h3>
+              <p>Leaderboards are permanent, limited to the top 10, and separated by run length and language.</p>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
 

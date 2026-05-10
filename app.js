@@ -18,15 +18,22 @@ const emptyState = document.querySelector("#emptyState");
 const leaderboardList = document.querySelector("#leaderboardList");
 const leaderboardEmptyState = document.querySelector("#leaderboardEmptyState");
 const leaderboardScope = document.querySelector("#leaderboardScope");
+const leaderboardPanel = document.querySelector(".leaderboard-panel");
 const leaderboardTabs = document.querySelectorAll("[data-leaderboard-duration]");
 const visitorCounter = document.querySelector("#visitorCounter");
 const backButton = document.querySelector("#backButton");
 const shuffleButton = document.querySelector("#shuffleButton");
 const clearButton = document.querySelector("#clearButton");
 const newRoundButton = document.querySelector("#newRoundButton");
+const howToPlayButton = document.querySelector("#howToPlayButton");
+const howToPlayModal = document.querySelector("#howToPlayModal");
+const closeRulesButton = document.querySelector("#closeRulesButton");
 const createRoomButton = document.querySelector("#createRoomButton");
 const joinRoomButton = document.querySelector("#joinRoomButton");
 const startRoomButton = document.querySelector("#startRoomButton");
+const onlineStartPanel = document.querySelector("#onlineStartPanel");
+const onlineStartText = document.querySelector("#onlineStartText");
+const startPlayerButton = document.querySelector("#startPlayerButton");
 const roomCodeInput = document.querySelector("#roomCodeInput");
 const roomStatus = document.querySelector("#roomStatus");
 const playerCountBadge = document.querySelector("#playerCountBadge");
@@ -36,11 +43,16 @@ const copyInviteButton = document.querySelector("#copyInviteButton");
 const shareInviteButton = document.querySelector("#shareInviteButton");
 const onlineScoreboard = document.querySelector("#onlineScoreboard");
 const timeUpBanner = document.querySelector("#timeUpBanner");
+const startCountdownBanner = document.querySelector("#startCountdownBanner");
+const startCountdownText = document.querySelector("#startCountdownText");
 const timeUpSummary = document.querySelector("#timeUpSummary");
 const recordBadge = document.querySelector("#recordBadge");
+const winnerBanner = document.querySelector("#winnerBanner");
 const bestPossibleWord = document.querySelector("#bestPossibleWord");
 const finalPlayerRecap = document.querySelector("#finalPlayerRecap");
+const playAgainStatus = document.querySelector("#playAgainStatus");
 const viewScoresButton = document.querySelector("#viewScoresButton");
+const playAgainRequestButton = document.querySelector("#playAgainRequestButton");
 const playAgainButton = document.querySelector("#playAgainButton");
 
 const languageNames = {
@@ -91,10 +103,14 @@ let currentRunIsRecord = false;
 let bestPossibleText = "";
 let onlineRoom = null;
 let onlinePlayers = [];
+let playAgainState = { count: 0, total: 0, requested: false };
+let onlineRunNumber = 0;
 let feedbackTimer = null;
 let timeUpDismissed = false;
 let lastCountdownBeepSecond = null;
 let lastLetterRenderKey = "";
+let startCountdownMessage = "";
+let startCountdownClearTimer = null;
 const touchLetterMedia = window.matchMedia("(pointer: coarse), (max-width: 760px)");
 
 function usesTouchLetterEntry() {
@@ -169,6 +185,36 @@ function updatePlayerCountBadge() {
   const count = onlinePlayers.length;
   const label = count === 1 ? "player" : "players";
   playerCountBadge.textContent = `${count}/${maxOnlinePlayers} ${label} joined`;
+}
+
+function getCurrentOnlinePlayer() {
+  if (!onlineRoom) return null;
+  return onlinePlayers.find((player) => player.id === onlineRoom.playerId) || null;
+}
+
+function updateOnlineStartPanel() {
+  const currentPlayer = getCurrentOnlinePlayer();
+  const showStart = Boolean(onlineRoom && currentPlayer && gameState === "ready");
+  onlineStartPanel.hidden = !showStart;
+  startPlayerButton.disabled = !showStart;
+  if (!showStart) return;
+
+  const readyPlayers = onlinePlayers.filter((player) => player.status === "ready").length;
+  const playingPlayers = onlinePlayers.filter((player) => player.status === "playing").length;
+  const donePlayers = onlinePlayers.filter((player) => player.status === "done").length;
+  onlineStartText.textContent = playingPlayers || donePlayers
+    ? `${playingPlayers} playing, ${donePlayers} finished. Start your own timer when you are ready.`
+    : `${readyPlayers} players are ready. Tap when you want your timer to begin.`;
+}
+
+function openRules() {
+  howToPlayModal.hidden = false;
+  closeRulesButton.focus();
+}
+
+function closeRules() {
+  howToPlayModal.hidden = true;
+  howToPlayButton.focus();
 }
 
 function pick(items) {
@@ -252,6 +298,16 @@ function scoreWord(word) {
 
 function getTotalScore() {
   return foundWords.reduce((sum, item) => sum + item.points, 0);
+}
+
+function getCurrentScore() {
+  const currentPlayer = getCurrentOnlinePlayer();
+  return currentPlayer ? currentPlayer.score : getTotalScore();
+}
+
+function getCurrentWordCount() {
+  const currentPlayer = getCurrentOnlinePlayer();
+  return currentPlayer ? currentPlayer.words : foundWords.length;
 }
 
 function isLongest(word) {
@@ -625,8 +681,8 @@ function renderScore() {
 
   timerValue.textContent = gameState === "setup" || gameState === "waiting" ? "-:--" : formatTime(secondsLeft);
   maybePlayCountdownSound();
-  scoreValue.textContent = getTotalScore();
-  wordCountValue.textContent = foundWords.length;
+  scoreValue.textContent = getCurrentScore();
+  wordCountValue.textContent = getCurrentWordCount();
   letterCountValue.textContent = gameState === "setup" ? "-" : letterCount;
   languageValue.textContent = gameState === "setup" ? "-" : languageNames[gameLanguage];
   longestValue.textContent = longest.word;
@@ -746,11 +802,18 @@ function renderOnlineScoreboard() {
     const name = document.createElement("strong");
     name.textContent = player.name;
     const score = document.createElement("span");
-    score.textContent = `${player.score} points, ${player.words} words`;
+    const statusLabels = {
+      waiting: "Waiting",
+      ready: "Ready",
+      playing: "Playing",
+      done: "Timer ended"
+    };
+    const status = gameState === "finished" ? "Final" : statusLabels[player.status] || "Waiting";
+    score.textContent = `${player.score} points, ${player.words} words · ${status}`;
     const list = document.createElement("ul");
     list.className = "online-word-list";
 
-    if (gameState === "playing" || gameState === "waiting") {
+    if (gameState === "playing" || gameState === "waiting" || gameState === "countdown" || gameState === "ready" || gameState === "waiting-results") {
       const item = document.createElement("li");
       item.textContent = "Words hidden until time is up";
       item.className = "empty-online-word";
@@ -780,20 +843,59 @@ function renderFinalPlayerRecap() {
   finalPlayerRecap.hidden = !onlineRoom || gameState !== "finished";
   if (finalPlayerRecap.hidden) return;
 
-  onlinePlayers.forEach((player) => {
+  const rankedPlayers = onlinePlayers
+    .slice()
+    .sort((a, b) => (b.score || 0) - (a.score || 0) || (b.words || 0) - (a.words || 0) || a.name.localeCompare(b.name));
+
+  let previousScore = null;
+  let previousRank = 0;
+  rankedPlayers.forEach((player, index) => {
+    const rank = player.score === previousScore ? previousRank : index + 1;
+    previousScore = player.score;
+    previousRank = rank;
+
     const words = player.foundWords || [];
     const longest = words.reduce((best, word) => word.length > best.length ? word : best, "-");
     const row = document.createElement("div");
     row.className = "final-player-row";
+    if (rank === 1) row.classList.add("winner-row");
 
     const name = document.createElement("strong");
-    name.textContent = player.name;
+    name.textContent = `#${rank} ${player.name}`;
     const details = document.createElement("span");
-    details.textContent = `${player.score} points, ${player.words} words, longest: ${longest}`;
+    const roomBonus = player.roomLongestBonus ? ", +15 room longest" : "";
+    details.textContent = `${player.score} points, ${player.words} words, longest: ${longest}${roomBonus}`;
 
     row.append(name, details);
     finalPlayerRecap.appendChild(row);
   });
+}
+
+function renderWinnerBanner() {
+  winnerBanner.hidden = true;
+  winnerBanner.textContent = "";
+  if (!onlineRoom || gameState !== "finished" || onlinePlayers.length < 2) return;
+
+  const bestScore = Math.max(...onlinePlayers.map((player) => player.score || 0));
+  const winners = onlinePlayers.filter((player) => (player.score || 0) === bestScore);
+  if (!winners.length) return;
+
+  const names = winners.map((player) => player.name).join(", ");
+  winnerBanner.hidden = false;
+  winnerBanner.textContent = winners.length === 1
+    ? `Winner: ${names}`
+    : `Winners: ${names}`;
+}
+
+function renderPlayAgainRequest() {
+  const showRequest = Boolean(onlineRoom && gameState === "finished");
+  playAgainStatus.hidden = !showRequest;
+  playAgainRequestButton.hidden = !showRequest;
+  if (!showRequest) return;
+
+  playAgainStatus.textContent = `${playAgainState.count || 0}/2 players ready for rematch.`;
+  playAgainRequestButton.disabled = Boolean(playAgainState.requested);
+  playAgainRequestButton.textContent = playAgainState.requested ? "Requested" : "Play Again";
 }
 
 function tag(text, isGold = false) {
@@ -804,10 +906,12 @@ function tag(text, isGold = false) {
 }
 
 function render() {
-  setupForm.classList.toggle("hidden", gameState === "playing");
+  setupForm.classList.toggle("hidden", ["playing", "countdown", "ready", "waiting-results"].includes(gameState));
   timeUpBanner.hidden = gameState !== "finished" || timeUpDismissed;
+  startCountdownBanner.hidden = !startCountdownMessage;
+  startCountdownText.textContent = startCountdownMessage;
   recordBadge.hidden = !currentRunIsRecord;
-  timeUpSummary.textContent = `${playerName} scored ${getTotalScore()} points with ${foundWords.length} words.`;
+  timeUpSummary.textContent = `${playerName} scored ${getCurrentScore()} points with ${getCurrentWordCount()} words.`;
   bestPossibleWord.textContent = bestPossibleText;
   letterTray.style.setProperty("--letter-count", letterCount || 9);
   renderLetters();
@@ -815,8 +919,11 @@ function render() {
   renderWords();
   renderLeaderboard();
   renderOnlineScoreboard();
+  renderWinnerBanner();
   renderFinalPlayerRecap();
+  renderPlayAgainRequest();
   updatePlayerCountBadge();
+  updateOnlineStartPanel();
   setPlayEnabled(gameState === "playing");
 }
 
@@ -887,7 +994,7 @@ async function submitGuess(event) {
     const rarity = rarityScore(word);
     const points = scoreWord(word);
 
-    foundWords.push({
+    const foundItem = {
       word,
       rarity,
       points,
@@ -895,17 +1002,20 @@ async function submitGuess(event) {
       longestBonus: false,
       unusualBonus: false,
       createdAt: Date.now()
-    });
+    };
 
-    if (onlineRoom) {
-      await submitOnlineWord(word, points);
-    }
+    const onlineRoomState = onlineRoom ? await submitOnlineWord(word, points) : null;
 
+    foundWords.push(foundItem);
     guessInput.value = "";
     playCorrectSound();
     flashGameFeedback("good");
     setMessage(`Accepted: ${word} scored ${points} points. Bonuses are awarded at the end.`, "good");
-    render();
+    if (onlineRoomState) {
+      applyRoomState(onlineRoomState);
+    } else {
+      render();
+    }
   } catch (error) {
     setMessage(error.message, "bad");
   } finally {
@@ -918,7 +1028,7 @@ async function submitGuess(event) {
 
 async function submitOnlineWord(word, points) {
   try {
-    await api(`/api/rooms/${onlineRoom.code}/word`, {
+    const room = await api(`/api/rooms/${onlineRoom.code}/word`, {
       method: "POST",
       body: JSON.stringify({
         playerId: onlineRoom.playerId,
@@ -926,9 +1036,10 @@ async function submitOnlineWord(word, points) {
         points
       })
     });
-    await syncRoomState();
+    return room;
   } catch (error) {
     setMessage(error.message, "bad");
+    throw error;
   }
 }
 
@@ -944,6 +1055,7 @@ async function submitOnlineFinalScore() {
       })
     });
     onlinePlayers = room.players;
+    await loadSharedLeaderboard();
   } catch {
     // Final local score still saves even if the room has already closed.
   }
@@ -952,6 +1064,7 @@ async function submitOnlineFinalScore() {
 async function saveLeaderboardEntry() {
   if (hasSavedCurrentRun) return;
   hasSavedCurrentRun = true;
+  if (onlineRoom) return;
 
   const entry = {
     id: currentRunId || `${Date.now()}:${Math.random().toString(36).slice(2)}`,
@@ -986,7 +1099,7 @@ function isNewRecord() {
   const previousBest = leaderboard
     .filter((entry) => entry.seconds === runLength && (entry.language || "en") === gameLanguage)
     .reduce((best, entry) => Math.max(best, entry.score), -1);
-  return getTotalScore() > previousBest;
+  return getCurrentScore() > previousBest;
 }
 
 async function findBestPossibleWord() {
@@ -1072,11 +1185,12 @@ function endRun() {
   focusPlayerNameInput();
 }
 
-async function endOnlineRun() {
+async function endOnlineRun(room = null) {
   if (gameState === "finished") return;
 
-  clearInterval(timerId);
-  timerId = null;
+  if (room) {
+    onlinePlayers = room.players;
+  }
   gameState = "finished";
   secondsLeft = 0;
   timeUpDismissed = false;
@@ -1141,6 +1255,8 @@ function startRun(event) {
 function applyRoomState(room) {
   const incomingLetters = room.letters.join("");
   const currentLetters = letters.join("");
+  const previousState = gameState;
+  const wasCountdown = previousState === "countdown";
   runLength = room.runLength;
   letterCount = room.letterCount;
   gameLanguage = room.language || "en";
@@ -1150,23 +1266,82 @@ function applyRoomState(room) {
   }
   secondsLeft = room.secondsLeft;
   onlinePlayers = room.players;
+  playAgainState = room.playAgain || { count: 0, total: onlinePlayers.length, requested: false };
   selectedLeaderboardDuration = runLength;
 
-  const currentPlayer = room.players.find((player) => player.id === onlineRoom.playerId);
+  const currentPlayer = getCurrentOnlinePlayer();
+  if (room.runNumber && room.runNumber !== onlineRunNumber) {
+    onlineRunNumber = room.runNumber;
+    foundWords = [];
+    hasSavedCurrentRun = false;
+    currentRunId = `${room.code}:${onlineRoom.playerId}:${room.runNumber}`;
+    currentRunIsRecord = false;
+    bestPossibleText = "";
+    timeUpDismissed = false;
+    lastCountdownBeepSecond = null;
+    guessInput.value = "";
+  }
+
   if (currentPlayer) {
     scoreValue.textContent = currentPlayer.score;
   }
 
   if (room.state === "waiting") {
     gameState = "waiting";
+    startCountdownMessage = "";
+    render();
+    return;
   }
 
-  if (room.state === "playing") {
-    gameState = "playing";
+  if (room.state === "countdown") {
+    gameState = "countdown";
+    const countdownLeft = Math.max(1, room.countdownLeft || 1);
+    startCountdownMessage = `Room opens in ${countdownLeft}`;
+    setMessage(startCountdownMessage, "good");
+    render();
+    return;
+  }
+
+  if (room.state === "ready" || room.state === "playing") {
+    const playerStatus = currentPlayer ? currentPlayer.status : room.playerStatus;
+    if (playerStatus === "playing") {
+      gameState = "playing";
+      if (previousState !== "playing") {
+        startCountdownMessage = wasCountdown || previousState === "ready" ? "GO!" : "";
+        clearTimeout(startCountdownClearTimer);
+        startCountdownClearTimer = setTimeout(() => {
+          if (gameState === "playing") {
+            startCountdownMessage = "";
+            render();
+          }
+        }, 800);
+        setMessage(`Your ${languageNames[gameLanguage]} timer is running.`, "good");
+      }
+    } else if (playerStatus === "done") {
+      gameState = "waiting-results";
+      secondsLeft = 0;
+      startCountdownMessage = "";
+      if (previousState !== "waiting-results") {
+        setMessage("Your timer is done. Waiting for the other players to finish.", "good");
+      }
+    } else {
+      gameState = "ready";
+      startCountdownMessage = "";
+      if (previousState !== "ready") {
+        setMessage("The room is ready. Tap Start My Timer when you are ready.", "good");
+      }
+    }
+    render();
+    return;
   }
 
   if (room.state === "finished") {
-    endOnlineRun();
+    if (previousState !== "finished") {
+      endOnlineRun(room);
+      return;
+    }
+    gameState = "finished";
+    render();
     return;
   }
 
@@ -1185,7 +1360,7 @@ function startRoomPolling() {
     syncRoomState().catch((error) => {
       setMessage(error.message, "bad");
     });
-  }, 1000);
+  }, 500);
 }
 
 async function createOnlineRoom() {
@@ -1211,8 +1386,10 @@ async function createOnlineRoom() {
   });
 
   onlineRoom = { code: room.code, playerId: room.playerId, isHost: true };
+  playAgainState = room.playAgain || { count: 0, total: 1, requested: false };
   currentRunId = `${room.code}:${room.playerId}`;
   foundWords = [];
+  onlineRunNumber = room.runNumber || 0;
   hasSavedCurrentRun = false;
   currentRunIsRecord = false;
   bestPossibleText = "";
@@ -1240,8 +1417,10 @@ async function joinOnlineRoom() {
   });
 
   onlineRoom = { code: room.code, playerId: room.playerId, isHost: false };
+  playAgainState = room.playAgain || { count: 0, total: room.players.length, requested: false };
   currentRunId = `${room.code}:${room.playerId}`;
   foundWords = [];
+  onlineRunNumber = room.runNumber || 0;
   hasSavedCurrentRun = false;
   currentRunIsRecord = false;
   bestPossibleText = "";
@@ -1260,8 +1439,31 @@ async function startOnlineRoom() {
     method: "POST",
     body: JSON.stringify({ playerId: onlineRoom.playerId })
   });
-  roomStatus.textContent = `Room ${room.code} is live.`;
+  roomStatus.textContent = `Room ${room.code} is opening. Each player will start their own timer.`;
   startRoomButton.hidden = true;
+  applyRoomState(room);
+}
+
+async function startOwnOnlineTimer() {
+  if (!onlineRoom) return;
+  const room = await api(`/api/rooms/${onlineRoom.code}/begin`, {
+    method: "POST",
+    body: JSON.stringify({ playerId: onlineRoom.playerId })
+  });
+  roomStatus.textContent = `Your timer is running in room ${room.code}.`;
+  applyRoomState(room);
+  focusGuessInput();
+}
+
+async function requestOnlinePlayAgain() {
+  if (!onlineRoom || gameState !== "finished") return;
+  const room = await api(`/api/rooms/${onlineRoom.code}/play-again`, {
+    method: "POST",
+    body: JSON.stringify({ playerId: onlineRoom.playerId })
+  });
+  roomStatus.textContent = room.state === "ready" || room.state === "playing" || room.state === "countdown"
+    ? `Room ${room.code} is opening again.`
+    : `${room.playAgain.count}/2 players ready for rematch.`;
   applyRoomState(room);
 }
 
@@ -1271,6 +1473,8 @@ function resetToSetup() {
   gameState = "setup";
   onlineRoom = null;
   onlinePlayers = [];
+  playAgainState = { count: 0, total: 0, requested: false };
+  onlineRunNumber = 0;
   letters = [];
   lastLetterRenderKey = "";
   foundWords = [];
@@ -1280,6 +1484,7 @@ function resetToSetup() {
   letterCountInput.value = letterCount;
   currentRunIsRecord = false;
   bestPossibleText = "";
+  startCountdownMessage = "";
   timeUpDismissed = false;
   lastCountdownBeepSecond = null;
   secondsLeft = 0;
@@ -1309,6 +1514,12 @@ joinRoomButton.addEventListener("click", () => {
 });
 startRoomButton.addEventListener("click", () => {
   startOnlineRoom().catch((error) => setMessage(error.message, "bad"));
+});
+startPlayerButton.addEventListener("click", () => {
+  startOwnOnlineTimer().catch((error) => setMessage(error.message, "bad"));
+});
+playAgainRequestButton.addEventListener("click", () => {
+  requestOnlinePlayAgain().catch((error) => setMessage(error.message, "bad"));
 });
 copyInviteButton.addEventListener("click", async () => {
   try {
@@ -1380,9 +1591,26 @@ clearButton.addEventListener("click", () => {
   focusGuessInput();
 });
 newRoundButton.addEventListener("click", resetToSetup);
+howToPlayButton.addEventListener("click", openRules);
+closeRulesButton.addEventListener("click", closeRules);
+howToPlayModal.addEventListener("click", (event) => {
+  if (event.target === howToPlayModal) {
+    closeRules();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !howToPlayModal.hidden) {
+    closeRules();
+  }
+});
 viewScoresButton.addEventListener("click", () => {
   timeUpDismissed = true;
   render();
+  requestAnimationFrame(() => {
+    leaderboardPanel.classList.add("score-focus");
+    leaderboardPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    setTimeout(() => leaderboardPanel.classList.remove("score-focus"), 1600);
+  });
 });
 playAgainButton.addEventListener("click", resetToSetup);
 
