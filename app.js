@@ -26,6 +26,9 @@ const joinRoomButton = document.querySelector("#joinRoomButton");
 const startRoomButton = document.querySelector("#startRoomButton");
 const roomCodeInput = document.querySelector("#roomCodeInput");
 const roomStatus = document.querySelector("#roomStatus");
+const inviteBox = document.querySelector("#inviteBox");
+const inviteLinkInput = document.querySelector("#inviteLinkInput");
+const copyInviteButton = document.querySelector("#copyInviteButton");
 const onlineScoreboard = document.querySelector("#onlineScoreboard");
 const timeUpBanner = document.querySelector("#timeUpBanner");
 const timeUpSummary = document.querySelector("#timeUpSummary");
@@ -35,9 +38,24 @@ const finalPlayerRecap = document.querySelector("#finalPlayerRecap");
 const viewScoresButton = document.querySelector("#viewScoresButton");
 const playAgainButton = document.querySelector("#playAgainButton");
 
-const vowels = ["a", "e", "i", "o", "u"];
-const commonConsonants = "nnnnrrrrttttllllsssscccddppmmbbggfhvwy".split("");
-const rareLetters = "jkqxz".split("");
+const languageNames = {
+  en: "English",
+  it: "Italiano"
+};
+const letterPools = {
+  en: {
+    vowels: ["a", "e", "i", "o", "u"],
+    commonConsonants: "nnnnrrrrttttllllsssscccddppmmbbggffhhvvwwyy".split(""),
+    rareLetters: "jkqxz".split(""),
+    vowelPlan: { 3: 1, 4: 1, 5: 2, 6: 2, 7: 2, 8: 3, 9: 3, 10: 3 }
+  },
+  it: {
+    vowels: ["a", "e", "i", "o", "u"],
+    commonConsonants: "nnnnrrrrttttllllssssccccddddpppmmmvvvbbbffgghh".split(""),
+    rareLetters: "qz".split(""),
+    vowelPlan: { 3: 1, 4: 2, 5: 2, 6: 2, 7: 3, 8: 3, 9: 4, 10: 4 }
+  }
+};
 const letterValues = {
   a: 1, b: 3, c: 3, d: 2, e: 1, f: 4, g: 2, h: 4, i: 1, j: 8, k: 5,
   l: 1, m: 3, n: 1, o: 1, p: 3, q: 10, r: 1, s: 1, t: 1, u: 1, v: 4,
@@ -45,6 +63,7 @@ const letterValues = {
 };
 
 const dictionaryCache = JSON.parse(localStorage.getItem("letterRunDictionaryCache") || "{}");
+const dictionaryCacheVersion = "v2";
 const leaderboardKey = "letterRunLeaderboard";
 let leaderboard = JSON.parse(localStorage.getItem(leaderboardKey) || "[]");
 let letters = [];
@@ -52,6 +71,7 @@ let foundWords = [];
 let playerName = "";
 let runLength = 60;
 let letterCount = 9;
+let gameLanguage = "en";
 let selectedLeaderboardDuration = 60;
 let secondsLeft = 0;
 let timerId = null;
@@ -64,26 +84,42 @@ let onlineRoom = null;
 let onlinePlayers = [];
 let feedbackTimer = null;
 let timeUpDismissed = false;
+let lastCountdownBeepSecond = null;
+let lastLetterRenderKey = "";
+
+function getInviteLink(code) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", code);
+  return url.toString();
+}
+
+function showInviteLink(code) {
+  inviteLinkInput.value = getInviteLink(code);
+  inviteBox.hidden = false;
+}
 
 function pick(items) {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function generateLetters(count) {
+function generateLetters(count, language = gameLanguage) {
+  const pool = letterPools[language] || letterPools.en;
   const set = [];
-  const guaranteedVowels = count >= 7 ? 3 : count >= 5 ? 2 : 1;
+  const vowelCount = pool.vowelPlan[count] || Math.max(1, Math.round(count * 0.36));
+  const rareCount = count >= 7 && Math.random() < 0.55 ? 1 : 0;
 
-  while (set.length < guaranteedVowels) {
-    set.push(pick(vowels));
+  while (set.length < vowelCount) {
+    set.push(pick(pool.vowels));
   }
 
-  if (count >= 7) {
-    set.push(pick(rareLetters));
+  while (set.length < vowelCount + rareCount) {
+    set.push(pick(pool.rareLetters));
   }
 
   while (set.length < count) {
-    set.push(Math.random() < 0.25 ? pick(vowels) : pick(commonConsonants));
+    set.push(pick(pool.commonConsonants));
   }
+
   return shuffle(set);
 }
 
@@ -114,7 +150,11 @@ function canBuildFromCounts(word, available) {
 }
 
 function cleanGuess(value) {
-  return value.toLowerCase().replace(/[^a-z]/g, "");
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z]/g, "");
 }
 
 function cleanName(value) {
@@ -151,20 +191,126 @@ function isMostUnusual(rarity) {
   return rarity >= maxRarity;
 }
 
+function applyEndRunBonuses() {
+  let longestWord = null;
+  let unusualWord = null;
+
+  foundWords.forEach((item) => {
+    item.longestBonus = false;
+    item.unusualBonus = false;
+    item.points = item.basePoints;
+
+    if (!longestWord || item.word.length > longestWord.word.length) {
+      longestWord = item;
+    }
+
+    if (!unusualWord || item.rarity > unusualWord.rarity) {
+      unusualWord = item;
+    }
+  });
+
+  if (longestWord) {
+    longestWord.longestBonus = true;
+    longestWord.points += 15;
+  }
+
+  if (unusualWord) {
+    unusualWord.unusualBonus = true;
+    unusualWord.points += 15;
+  }
+}
+
+function bestFromFoundWords() {
+  return foundWords.reduce((best, item) => {
+    if (!best) return item;
+    if (item.word.length > best.word.length) return item;
+    if (item.word.length === best.word.length && item.rarity > best.rarity) return item;
+    return best;
+  }, null);
+}
+
+function chooseBetterBestWord(candidateWord, candidateLength) {
+  const foundBest = bestFromFoundWords();
+  if (!foundBest) {
+    return candidateWord ? { word: candidateWord, length: candidateLength } : null;
+  }
+
+  if (!candidateWord || foundBest.word.length > candidateLength) {
+    return { word: foundBest.word, length: foundBest.word.length };
+  }
+
+  if (foundBest.word.length === candidateLength && foundBest.rarity > rarityScore(candidateWord)) {
+    return { word: foundBest.word, length: foundBest.word.length };
+  }
+
+  return { word: candidateWord, length: candidateLength };
+}
+
 async function validateWord(word) {
-  if (dictionaryCache[word] !== undefined) {
-    return dictionaryCache[word];
+  const cacheKey = `${dictionaryCacheVersion}:${gameLanguage}:${word}`;
+  if (dictionaryCache[cacheKey] !== undefined) {
+    return dictionaryCache[cacheKey];
   }
 
   try {
-    const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+    const serverResult = await api("/api/validate-word", {
+      method: "POST",
+      body: JSON.stringify({
+        word,
+        language: gameLanguage
+      })
+    });
+    dictionaryCache[cacheKey] = Boolean(serverResult.valid);
+    localStorage.setItem("letterRunDictionaryCache", JSON.stringify(dictionaryCache));
+    return dictionaryCache[cacheKey];
+  } catch {
+    // Direct file play can still use the public dictionary API below.
+  }
+
+  try {
+    const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/${gameLanguage}/${encodeURIComponent(word)}`);
     const valid = response.ok;
-    dictionaryCache[word] = valid;
+    dictionaryCache[cacheKey] = valid;
     localStorage.setItem("letterRunDictionaryCache", JSON.stringify(dictionaryCache));
     return valid;
   } catch {
     throw new Error("Dictionary check needs an internet connection.");
   }
+}
+
+async function fetchFirstDictionarySource(urls) {
+  let lastError = new Error("Dictionary unavailable");
+  for (const url of urls) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Dictionary source failed");
+      return response;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+function flattenWordSource(source) {
+  if (Array.isArray(source)) {
+    return source.flatMap((item) => {
+      if (typeof item === "string") return item;
+      if (Array.isArray(item)) return flattenWordSource(item);
+      if (item && typeof item === "object") return Object.values(item).flatMap(flattenWordSource);
+      return [];
+    });
+  }
+
+  if (source && typeof source === "object") {
+    return Object.values(source).flatMap(flattenWordSource);
+  }
+
+  if (typeof source === "string") {
+    return source.split(/\r?\n/);
+  }
+
+  return [];
 }
 
 function setMessage(text, tone = "") {
@@ -255,6 +401,25 @@ function playWrongSound() {
   ]);
 }
 
+function playCountdownSound(seconds) {
+  const isFinal = seconds <= 0;
+  playTone([{
+    frequency: isFinal ? 220 : 880,
+    delay: 0,
+    duration: isFinal ? 0.22 : 0.075,
+    volume: isFinal ? 0.18 : 0.12,
+    type: isFinal ? "square" : "sine"
+  }]);
+}
+
+function maybePlayCountdownSound() {
+  if (gameState !== "playing") return;
+  if (secondsLeft > 10 || secondsLeft < 0) return;
+  if (lastCountdownBeepSecond === secondsLeft) return;
+  lastCountdownBeepSecond = secondsLeft;
+  playCountdownSound(secondsLeft);
+}
+
 function formatTime(seconds) {
   const minutes = Math.floor(seconds / 60);
   const remainder = String(seconds % 60).padStart(2, "0");
@@ -272,6 +437,10 @@ function setPlayEnabled(enabled) {
 }
 
 function renderLetters() {
+  const renderKey = `${letters.join("")}|${cleanGuess(guessInput.value)}|${gameState}`;
+  if (renderKey === lastLetterRenderKey) return;
+  lastLetterRenderKey = renderKey;
+
   const typedCounts = countLetters(cleanGuess(guessInput.value));
   const usedCounts = {};
   letterTray.innerHTML = "";
@@ -306,6 +475,7 @@ function renderScore() {
   const unusual = foundWords.reduce((best, item) => item.rarity > best.rarity ? item : best, { word: "-", rarity: 0 });
 
   timerValue.textContent = gameState === "setup" || gameState === "waiting" ? "-:--" : formatTime(secondsLeft);
+  maybePlayCountdownSound();
   scoreValue.textContent = getTotalScore();
   wordCountValue.textContent = foundWords.length;
   letterCountValue.textContent = gameState === "setup" ? "-" : letterCount;
@@ -349,10 +519,10 @@ function renderWords() {
 function renderLeaderboard() {
   leaderboardList.innerHTML = "";
   const entries = leaderboard
-    .filter((entry) => entry.seconds === selectedLeaderboardDuration)
+    .filter((entry) => entry.seconds === selectedLeaderboardDuration && (entry.language || "en") === gameLanguage)
     .sort((a, b) => b.score - a.score || b.words - a.words || a.seconds - b.seconds || b.createdAt - a.createdAt);
   const hasEntries = entries.length > 0;
-  leaderboardScope.textContent = `${selectedLeaderboardDuration / 60} min runs`;
+  leaderboardScope.textContent = `${languageNames[gameLanguage]} ${selectedLeaderboardDuration / 60} min runs`;
   leaderboardEmptyState.hidden = hasEntries;
 
   leaderboardTabs.forEach((button) => {
@@ -408,17 +578,24 @@ function renderOnlineScoreboard() {
     const list = document.createElement("ul");
     list.className = "online-word-list";
 
-    (player.foundWords || []).slice().reverse().forEach((word) => {
+    if (gameState === "playing" || gameState === "waiting") {
       const item = document.createElement("li");
-      item.textContent = word;
-      list.appendChild(item);
-    });
-
-    if (!list.children.length) {
-      const item = document.createElement("li");
-      item.textContent = "No words yet";
+      item.textContent = "Words hidden until time is up";
       item.className = "empty-online-word";
       list.appendChild(item);
+    } else {
+      (player.foundWords || []).slice().reverse().forEach((word) => {
+        const item = document.createElement("li");
+        item.textContent = word;
+        list.appendChild(item);
+      });
+
+      if (!list.children.length) {
+        const item = document.createElement("li");
+        item.textContent = "No words found";
+        item.className = "empty-online-word";
+        list.appendChild(item);
+      }
     }
 
     card.append(name, score, list);
@@ -473,6 +650,11 @@ function render() {
 function getSelectedDuration() {
   const selectedDuration = setupForm.querySelector("input[name='duration']:checked");
   return Number(selectedDuration.value);
+}
+
+function getSelectedLanguage() {
+  const selectedLanguage = setupForm.querySelector("input[name='language']:checked");
+  return selectedLanguage ? selectedLanguage.value : "en";
 }
 
 async function submitGuess(event) {
@@ -530,16 +712,15 @@ async function submitGuess(event) {
     }
 
     const rarity = rarityScore(word);
-    const longestBonus = isLongest(word);
-    const unusualBonus = isMostUnusual(rarity);
-    const points = scoreWord(word) + (longestBonus ? 15 : 0) + (unusualBonus ? 15 : 0);
+    const points = scoreWord(word);
 
     foundWords.push({
       word,
       rarity,
       points,
-      longestBonus,
-      unusualBonus,
+      basePoints: points,
+      longestBonus: false,
+      unusualBonus: false,
       createdAt: Date.now()
     });
 
@@ -550,7 +731,7 @@ async function submitGuess(event) {
     guessInput.value = "";
     playCorrectSound();
     flashGameFeedback("good");
-    setMessage(`Accepted: ${word} scored ${points} points.`, "good");
+    setMessage(`Accepted: ${word} scored ${points} points. Bonuses are awarded at the end.`, "good");
     render();
   } catch (error) {
     setMessage(error.message, "bad");
@@ -578,6 +759,23 @@ async function submitOnlineWord(word, points) {
   }
 }
 
+async function submitOnlineFinalScore() {
+  if (!onlineRoom) return;
+  try {
+    const room = await api(`/api/rooms/${onlineRoom.code}/finish`, {
+      method: "POST",
+      body: JSON.stringify({
+        playerId: onlineRoom.playerId,
+        score: getTotalScore(),
+        words: foundWords.length
+      })
+    });
+    onlinePlayers = room.players;
+  } catch {
+    // Final local score still saves even if the room has already closed.
+  }
+}
+
 function saveLeaderboardEntry() {
   if (hasSavedCurrentRun) return;
   hasSavedCurrentRun = true;
@@ -588,20 +786,21 @@ function saveLeaderboardEntry() {
     words: foundWords.length,
     seconds: runLength,
     letters: letterCount,
+    language: gameLanguage,
     createdAt: Date.now()
   });
 
-  leaderboard = [60, 120, 180].flatMap((duration) => leaderboard
-    .filter((entry) => entry.seconds === duration)
+  leaderboard = ["en", "it"].flatMap((language) => [60, 120, 180].flatMap((duration) => leaderboard
+    .filter((entry) => entry.seconds === duration && (entry.language || "en") === language)
     .sort((a, b) => b.score - a.score || b.words - a.words || a.seconds - b.seconds || b.createdAt - a.createdAt)
-    .slice(0, 10));
+    .slice(0, 10)));
 
   localStorage.setItem(leaderboardKey, JSON.stringify(leaderboard));
 }
 
 function isNewRecord() {
   const previousBest = leaderboard
-    .filter((entry) => entry.seconds === runLength)
+    .filter((entry) => entry.seconds === runLength && (entry.language || "en") === gameLanguage)
     .reduce((best, entry) => Math.max(best, entry.score), -1);
   return getTotalScore() > previousBest;
 }
@@ -614,11 +813,31 @@ async function findBestPossibleWord() {
   render();
 
   try {
-    const response = await fetch("https://cdn.jsdelivr.net/gh/dwyl/english-words@master/words_alpha.txt");
-    if (!response.ok) throw new Error("Dictionary unavailable");
-
-    const text = await response.text();
-    const words = text.split(/\r?\n/);
+    const serverBest = await api("/api/best-word", {
+      method: "POST",
+      body: JSON.stringify({
+        letters: snapshotLetters,
+        language: gameLanguage,
+        foundWords: foundWords.map((item) => item.word)
+      })
+    });
+    const bestChoice = chooseBetterBestWord(serverBest.word, serverBest.length);
+    bestPossibleText = bestChoice
+      ? `Best possible word: ${bestChoice.word} (${bestChoice.length} letters)`
+      : "Best possible word: none found";
+  } catch {
+    try {
+      const response = await fetchFirstDictionarySource(gameLanguage === "it"
+        ? [
+          "https://cdn.jsdelivr.net/npm/italian-words-dict@3.4.0/dist/words.json",
+          "https://unpkg.com/italian-words-dict@3.4.0/dist/words.json"
+        ]
+        : [
+          "https://cdn.jsdelivr.net/gh/dwyl/english-words@master/words_alpha.txt",
+          "https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt"
+        ]);
+      const source = gameLanguage === "it" ? await response.json() : await response.text();
+      const words = flattenWordSource(source);
     let best = "";
     let bestRarity = -1;
 
@@ -634,11 +853,16 @@ async function findBestPossibleWord() {
       }
     });
 
-    bestPossibleText = best
-      ? `Best possible word: ${best} (${best.length} letters)`
+    const bestChoice = chooseBetterBestWord(best, best.length);
+    bestPossibleText = bestChoice
+      ? `Best possible word: ${bestChoice.word} (${bestChoice.length} letters)`
       : "Best possible word: none found";
-  } catch {
-    bestPossibleText = "Best possible word: could not check dictionary";
+    } catch {
+      const longestFound = foundWords.reduce((best, item) => item.word.length > best.length ? item.word : best, "");
+      bestPossibleText = longestFound
+        ? `Best possible word: unavailable offline. Longest found: ${longestFound}`
+        : "Best possible word: unavailable offline";
+    }
   }
 
   if (gameState === "finished") {
@@ -654,6 +878,7 @@ function endRun() {
   gameState = "finished";
   secondsLeft = 0;
   timeUpDismissed = false;
+  applyEndRunBonuses();
   currentRunIsRecord = isNewRecord();
   bestPossibleText = "Best possible word: checking...";
   saveLeaderboardEntry();
@@ -663,7 +888,7 @@ function endRun() {
   playerNameInput.focus();
 }
 
-function endOnlineRun() {
+async function endOnlineRun() {
   if (gameState === "finished") return;
 
   clearInterval(timerId);
@@ -671,6 +896,8 @@ function endOnlineRun() {
   gameState = "finished";
   secondsLeft = 0;
   timeUpDismissed = false;
+  applyEndRunBonuses();
+  await submitOnlineFinalScore();
   currentRunIsRecord = isNewRecord();
   bestPossibleText = "Best possible word: checking...";
   saveLeaderboardEntry();
@@ -705,28 +932,37 @@ function startRun(event) {
   }
 
   runLength = getSelectedDuration();
+  gameLanguage = getSelectedLanguage();
   selectedLeaderboardDuration = runLength;
   letterCount = cleanLetterCount(letterCountInput.value);
   letterCountInput.value = letterCount;
   secondsLeft = runLength;
-  letters = generateLetters(letterCount);
+  letters = generateLetters(letterCount, gameLanguage);
+  lastLetterRenderKey = "";
   foundWords = [];
   hasSavedCurrentRun = false;
   currentRunIsRecord = false;
   bestPossibleText = "";
   timeUpDismissed = false;
+  lastCountdownBeepSecond = null;
   guessInput.value = "";
   gameState = "playing";
-  setMessage(`${playerName}, your ${runLength / 60} minute run is live with ${letterCount} letters.`, "good");
+  setMessage(`${playerName}, your ${languageNames[gameLanguage]} ${runLength / 60} minute run is live with ${letterCount} letters.`, "good");
   render();
   startTimer();
   guessInput.focus();
 }
 
 function applyRoomState(room) {
+  const incomingLetters = room.letters.join("");
+  const currentLetters = letters.join("");
   runLength = room.runLength;
   letterCount = room.letterCount;
+  gameLanguage = room.language || "en";
   letters = room.letters;
+  if (incomingLetters !== currentLetters) {
+    lastLetterRenderKey = "";
+  }
   secondsLeft = room.secondsLeft;
   onlinePlayers = room.players;
   selectedLeaderboardDuration = runLength;
@@ -777,13 +1013,15 @@ async function createOnlineRoom() {
   }
 
   runLength = getSelectedDuration();
+  gameLanguage = getSelectedLanguage();
   letterCount = cleanLetterCount(letterCountInput.value);
   const room = await api("/api/rooms", {
     method: "POST",
     body: JSON.stringify({
       name: playerName,
       runLength,
-      letterCount
+      letterCount,
+      language: gameLanguage
     })
   });
 
@@ -793,7 +1031,9 @@ async function createOnlineRoom() {
   currentRunIsRecord = false;
   bestPossibleText = "";
   timeUpDismissed = false;
+  lastCountdownBeepSecond = null;
   roomStatus.textContent = `Room ${room.code} ready. Share this code, then start when both players are in.`;
+  showInviteLink(room.code);
   startRoomButton.hidden = false;
   applyRoomState(room);
   startRoomPolling();
@@ -818,7 +1058,10 @@ async function joinOnlineRoom() {
   hasSavedCurrentRun = false;
   currentRunIsRecord = false;
   bestPossibleText = "";
+  timeUpDismissed = false;
+  lastCountdownBeepSecond = null;
   roomStatus.textContent = `Joined room ${room.code}. Waiting for the host to start.`;
+  inviteBox.hidden = true;
   startRoomButton.hidden = true;
   applyRoomState(room);
   startRoomPolling();
@@ -842,15 +1085,21 @@ function resetToSetup() {
   onlineRoom = null;
   onlinePlayers = [];
   letters = [];
+  lastLetterRenderKey = "";
   foundWords = [];
+  gameLanguage = getSelectedLanguage();
   letterCount = cleanLetterCount(letterCountInput.value);
   letterCountInput.value = letterCount;
   currentRunIsRecord = false;
   bestPossibleText = "";
+  timeUpDismissed = false;
+  lastCountdownBeepSecond = null;
   secondsLeft = 0;
   guessInput.value = "";
   setMessage("Enter your name, choose a run length, and start.");
   roomStatus.textContent = "Online rooms need the game server running.";
+  inviteBox.hidden = true;
+  inviteLinkInput.value = "";
   startRoomButton.hidden = true;
   render();
   playerNameInput.focus();
@@ -860,6 +1109,7 @@ setupForm.addEventListener("submit", startRun);
 setupForm.addEventListener("change", () => {
   letterCount = cleanLetterCount(letterCountInput.value);
   selectedLeaderboardDuration = getSelectedDuration();
+  gameLanguage = getSelectedLanguage();
   render();
 });
 createRoomButton.addEventListener("click", () => {
@@ -870,6 +1120,15 @@ joinRoomButton.addEventListener("click", () => {
 });
 startRoomButton.addEventListener("click", () => {
   startOnlineRoom().catch((error) => setMessage(error.message, "bad"));
+});
+copyInviteButton.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(inviteLinkInput.value);
+    roomStatus.textContent = "Invite link copied.";
+  } catch {
+    inviteLinkInput.select();
+    roomStatus.textContent = "Invite link selected.";
+  }
 });
 leaderboardTabs.forEach((button) => {
   button.addEventListener("click", () => {
@@ -882,11 +1141,14 @@ guessInput.addEventListener("input", renderLetters);
 shuffleButton.addEventListener("click", () => {
   if (gameState !== "playing") return;
   letters = shuffle(letters);
+  lastLetterRenderKey = "";
   renderLetters();
+  guessInput.focus();
 });
 clearButton.addEventListener("click", () => {
   guessInput.value = "";
   setMessage("Cleared.");
+  lastLetterRenderKey = "";
   renderLetters();
   guessInput.focus();
 });
@@ -897,4 +1159,8 @@ viewScoresButton.addEventListener("click", () => {
 });
 playAgainButton.addEventListener("click", resetToSetup);
 
+const initialRoomCode = new URLSearchParams(window.location.search).get("room");
 resetToSetup();
+if (initialRoomCode) {
+  roomCodeInput.value = initialRoomCode.toUpperCase();
+}

@@ -40,9 +40,22 @@
             </div>
           </fieldset>
           <div class="letter-count-control">
-            <label for="letterCountInput">Letters to use</label>
+            <label for="letterCountInput">Choose how many letters to use (3 to 10)</label>
             <input id="letterCountInput" type="number" min="3" max="10" value="9" required>
           </div>
+          <fieldset>
+            <legend>Language</legend>
+            <div class="language-options">
+              <label>
+                <input type="radio" name="language" value="en" checked>
+                <span>English</span>
+              </label>
+              <label>
+                <input type="radio" name="language" value="it">
+                <span>Italiano</span>
+              </label>
+            </div>
+          </fieldset>
           <button type="submit">Start Solo Run</button>
           <div class="online-panel">
             <div class="online-actions">
@@ -53,6 +66,10 @@
               </div>
             </div>
             <p id="roomStatus" class="room-status">Online rooms need the game server running.</p>
+            <div id="inviteBox" class="invite-box" hidden>
+              <input id="inviteLinkInput" readonly aria-label="Room invite link">
+              <button id="copyInviteButton" type="button">Copy Link</button>
+            </div>
             <button id="startRoomButton" type="button" hidden>Start Online Run</button>
           </div>
         </form>
