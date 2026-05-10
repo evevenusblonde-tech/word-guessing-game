@@ -45,8 +45,13 @@
             </div>
           </fieldset>
           <div class="letter-count-control">
-            <label for="letterCountInput">Choose how many letters to use (3 to 10)</label>
-            <input id="letterCountInput" type="number" min="3" max="10" value="9" required>
+            <label for="letterCountInput">Letters to use</label>
+            <div class="letter-stepper">
+              <button id="letterCountMinus" type="button" aria-label="Use fewer letters">-</button>
+              <input id="letterCountInput" type="number" inputmode="numeric" min="3" max="10" value="9" required>
+              <button id="letterCountPlus" type="button" aria-label="Use more letters">+</button>
+              <span>Choose 3 to 10</span>
+            </div>
           </div>
           <fieldset>
             <legend>Language</legend>

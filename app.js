@@ -1,6 +1,8 @@
 const setupForm = document.querySelector("#setupForm");
 const playerNameInput = document.querySelector("#playerNameInput");
 const letterCountInput = document.querySelector("#letterCountInput");
+const letterCountMinus = document.querySelector("#letterCountMinus");
+const letterCountPlus = document.querySelector("#letterCountPlus");
 const timerValue = document.querySelector("#timerValue");
 const letterTray = document.querySelector("#letterTray");
 const guessForm = document.querySelector("#guessForm");
@@ -284,6 +286,12 @@ function cleanLetterCount(value) {
   const count = Number(value);
   if (!Number.isFinite(count)) return 9;
   return Math.min(10, Math.max(3, Math.round(count)));
+}
+
+function updateLetterCount(value) {
+  letterCount = cleanLetterCount(value);
+  letterCountInput.value = letterCount;
+  render();
 }
 
 function rarityScore(word) {
@@ -1501,10 +1509,19 @@ function resetToSetup() {
 
 setupForm.addEventListener("submit", startRun);
 setupForm.addEventListener("change", () => {
-  letterCount = cleanLetterCount(letterCountInput.value);
+  updateLetterCount(letterCountInput.value);
   selectedLeaderboardDuration = getSelectedDuration();
   gameLanguage = getSelectedLanguage();
   render();
+});
+letterCountMinus.addEventListener("click", () => {
+  updateLetterCount(Number(letterCountInput.value) - 1);
+});
+letterCountPlus.addEventListener("click", () => {
+  updateLetterCount(Number(letterCountInput.value) + 1);
+});
+letterCountInput.addEventListener("blur", () => {
+  updateLetterCount(letterCountInput.value);
 });
 createRoomButton.addEventListener("click", () => {
   createOnlineRoom().catch((error) => setMessage(error.message, "bad"));
