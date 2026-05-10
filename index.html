@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Letter Run</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="game-shell">
+      <section class="play-area" aria-labelledby="game-title">
+        <header class="masthead">
+          <div>
+            <p class="kicker">Open dictionary word game</p>
+            <h1 id="game-title">Letter Run</h1>
+          </div>
+          <button id="newRoundButton" class="icon-button" type="button" aria-label="New run" title="New run">
+            <span aria-hidden="true">R</span>
+          </button>
+        </header>
+
+        <form id="setupForm" class="setup-panel">
+          <label for="playerNameInput">Player name</label>
+          <input id="playerNameInput" autocomplete="name" maxlength="24" placeholder="Your name" required>
+          <fieldset>
+            <legend>Run length</legend>
+            <div class="duration-options">
+              <label>
+                <input type="radio" name="duration" value="60" checked>
+                <span>1 min</span>
+              </label>
+              <label>
+                <input type="radio" name="duration" value="120">
+                <span>2 min</span>
+              </label>
+              <label>
+                <input type="radio" name="duration" value="180">
+                <span>3 min</span>
+              </label>
+            </div>
+          </fieldset>
+          <div class="letter-count-control">
+            <label for="letterCountInput">Letters to use</label>
+            <input id="letterCountInput" type="number" min="3" max="10" value="9" required>
+          </div>
+          <button type="submit">Start Solo Run</button>
+          <div class="online-panel">
+            <div class="online-actions">
+              <button id="createRoomButton" type="button">Create Online Room</button>
+              <div class="join-row">
+                <input id="roomCodeInput" maxlength="6" placeholder="Room code" aria-label="Room code">
+                <button id="joinRoomButton" type="button">Join</button>
+              </div>
+            </div>
+            <p id="roomStatus" class="room-status">Online rooms need the game server running.</p>
+            <button id="startRoomButton" type="button" hidden>Start Online Run</button>
+          </div>
+        </form>
+
+        <div class="score-strip" aria-label="Game score">
+          <div>
+            <span class="metric-label">Time</span>
+            <strong id="timerValue">-:--</strong>
+          </div>
+          <div>
+            <span class="metric-label">Score</span>
+            <strong id="scoreValue">0</strong>
+          </div>
+          <div>
+            <span class="metric-label">Words</span>
+            <strong id="wordCountValue">0</strong>
+          </div>
+          <div>
+            <span class="metric-label">Letters</span>
+            <strong id="letterCountValue">-</strong>
+          </div>
+          <div>
+            <span class="metric-label">Longest</span>
+            <strong id="longestValue">-</strong>
+          </div>
+          <div>
+            <span class="metric-label">Unusual</span>
+            <strong id="unusualValue">-</strong>
+          </div>
+        </div>
+
+        <form id="guessForm" class="guess-form">
+          <label for="guessInput">Make a word from these letters</label>
+          <div class="entry-row">
+            <input id="guessInput" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="2" placeholder="Type a word" required>
+            <button id="submitButton" type="submit">Guess</button>
+          </div>
+          <p id="message" class="message" role="status" aria-live="polite">Words can be 2 letters or longer.</p>
+        </form>
+
+        <div id="letterTray" class="letter-tray" aria-label="Available letters"></div>
+
+        <div class="controls-row">
+          <button id="shuffleButton" class="secondary-button" type="button">Shuffle</button>
+          <button id="clearButton" class="secondary-button" type="button">Clear</button>
+        </div>
+
+        <div id="onlineScoreboard" class="online-scoreboard" hidden></div>
+
+      </section>
+
+      <aside class="found-panel" aria-label="Found words">
+        <div class="panel-section found-section">
+          <div class="panel-heading">
+            <h2>Found Words</h2>
+            <span id="bonusHint">+15 longest, +15 most unusual</span>
+          </div>
+          <ol id="wordList" class="word-list"></ol>
+          <div id="emptyState" class="empty-state">Valid guesses will appear here with their bonuses.</div>
+        </div>
+      </aside>
+
+      <aside class="leaderboard-panel" aria-label="Historical leaderboard">
+        <div class="panel-section leaderboard-section">
+          <div class="panel-heading">
+            <h2>Leaderboard</h2>
+            <span id="leaderboardScope">Permanent history</span>
+          </div>
+          <div class="leaderboard-tabs" aria-label="Leaderboard run length">
+            <button type="button" data-leaderboard-duration="60">1 min</button>
+            <button type="button" data-leaderboard-duration="120">2 min</button>
+            <button type="button" data-leaderboard-duration="180">3 min</button>
+          </div>
+          <div id="leaderboardList" class="leaderboard-list"></div>
+          <div id="leaderboardEmptyState" class="empty-state">Completed runs will be saved here.</div>
+        </div>
+      </aside>
+
+      <div id="timeUpBanner" class="time-up-overlay" role="dialog" aria-modal="true" aria-labelledby="timeUpTitle" hidden>
+        <div class="time-up-popup">
+          <strong id="timeUpTitle">Time is up</strong>
+          <em id="recordBadge" hidden>New Record!</em>
+          <span id="timeUpSummary">Final score: 0</span>
+          <span id="bestPossibleWord">Best possible word: checking...</span>
+          <div id="finalPlayerRecap" class="final-player-recap" hidden></div>
+          <div class="time-up-actions">
+            <button id="viewScoresButton" type="button">View Scores</button>
+            <button id="playAgainButton" type="button">New Run</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
