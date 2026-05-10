@@ -139,7 +139,7 @@ h2 {
   font-size: 1rem;
 }
 
-.icon-button,
+.restart-button,
 .secondary-button,
 .setup-panel button,
 .entry-row button {
@@ -149,18 +149,18 @@ h2 {
   transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease, border-color 150ms ease;
 }
 
-.icon-button {
-  width: 46px;
-  height: 46px;
-  display: grid;
-  place-items: center;
+.restart-button {
+  min-height: 46px;
+  padding: 0 16px;
   background: linear-gradient(135deg, var(--ink), var(--grape));
   color: white;
-  font-size: 1.45rem;
+  font-size: 0.9rem;
+  font-weight: 900;
+  white-space: nowrap;
   box-shadow: 0 10px 22px rgba(24, 33, 47, 0.22);
 }
 
-.icon-button:hover,
+.restart-button:hover,
 .secondary-button:hover,
 .setup-panel button:hover,
 .entry-row button:hover {
@@ -473,6 +473,10 @@ h2 {
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
+.letter-tile.no-enter-animation {
+  animation: none;
+}
+
 .letter-tile:nth-child(2n) {
   animation-delay: 30ms;
 }
@@ -506,6 +510,10 @@ h2 {
   gap: 10px;
 }
 
+.mobile-only-control {
+  display: none;
+}
+
 .secondary-button {
   min-height: 42px;
   padding: 0 16px;
@@ -518,7 +526,7 @@ h2 {
 
 .online-scoreboard {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -992,6 +1000,10 @@ h2 {
     max-height: none;
     overflow: visible;
   }
+
+  .online-scoreboard {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
 }
 
 @media (max-width: 560px) {
@@ -1026,9 +1038,10 @@ h2 {
     padding: 7px 10px;
   }
 
-  .icon-button {
-    width: 42px;
-    height: 42px;
+  .restart-button {
+    min-height: 42px;
+    padding: 0 12px;
+    font-size: 0.8rem;
   }
 
   .score-strip {
@@ -1078,10 +1091,21 @@ h2 {
   }
 
   .controls-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
   }
 
   .controls-row button {
     min-height: 42px;
+    padding: 0 10px;
+  }
+
+  .mobile-only-control {
+    display: inline-block;
+  }
+
+  .online-scoreboard {
+    grid-template-columns: 1fr;
   }
 }

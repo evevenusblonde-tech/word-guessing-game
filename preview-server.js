@@ -9,6 +9,8 @@ const root = __dirname;
 const rooms = new Map();
 const wordListCache = new Map();
 const wordSetCache = new Map();
+const maxPlayersPerRoom = 3;
+const leaderboardPath = path.join(root, "data", "leaderboard.json");
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -74,6 +76,11 @@ function cleanRunLength(value) {
 
 function cleanLanguage(value) {
   return value === "it" ? "it" : "en";
+}
+
+function cleanScore(value) {
+  const score = Math.round(Number(value) || 0);
+  return Math.max(0, score);
 }
 
 function cleanGuess(value) {
@@ -315,6 +322,61 @@ function sendJson(response, status, data) {
   response.end(JSON.stringify(data));
 }
 
+function readLeaderboard() {
+  try {
+    if (!fs.existsSync(leaderboardPath)) return [];
+    const entries = JSON.parse(fs.readFileSync(leaderboardPath, "utf8"));
+    return Array.isArray(entries) ? entries : [];
+  } catch {
+    return [];
+  }
+}
+
+function sortLeaderboard(entries) {
+  return entries
+    .filter((entry) => entry && entry.name)
+    .sort((a, b) => b.score - a.score || b.words - a.words || a.seconds - b.seconds || b.createdAt - a.createdAt);
+}
+
+function writeLeaderboard(entries) {
+  fs.mkdirSync(path.dirname(leaderboardPath), { recursive: true });
+  fs.writeFileSync(leaderboardPath, `${JSON.stringify(sortLeaderboard(entries), null, 2)}\n`, "utf8");
+}
+
+function saveLeaderboardEntry(entry) {
+  const cleaned = {
+    id: String(entry.id || crypto.randomUUID()),
+    name: cleanName(entry.name) || "Player",
+    score: cleanScore(entry.score),
+    words: cleanScore(entry.words),
+    seconds: cleanRunLength(entry.seconds),
+    letters: cleanLetterCount(entry.letters),
+    language: cleanLanguage(entry.language),
+    mode: entry.mode === "online" ? "online" : "solo",
+    createdAt: Math.max(0, Math.round(Number(entry.createdAt) || Date.now()))
+  };
+  const entries = readLeaderboard().filter((item) => item.id !== cleaned.id);
+  entries.push(cleaned);
+  writeLeaderboard(entries);
+  return cleaned;
+}
+
+function saveRoomLeaderboardEntries(room) {
+  room.players.forEach((player) => {
+    saveLeaderboardEntry({
+      id: `${room.code}:${player.id}`,
+      name: player.name,
+      score: player.score,
+      words: player.words,
+      seconds: room.runLength,
+      letters: room.letterCount,
+      language: room.language,
+      mode: "online",
+      createdAt: Date.now()
+    });
+  });
+}
+
 function readBody(request) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -335,6 +397,16 @@ function readBody(request) {
 
 async function handleApi(request, response, pathname) {
   try {
+    if (request.method === "GET" && pathname === "/api/leaderboard") {
+      return sendJson(response, 200, { entries: sortLeaderboard(readLeaderboard()) });
+    }
+
+    if (request.method === "POST" && pathname === "/api/leaderboard") {
+      const body = await readBody(request);
+      saveLeaderboardEntry(body);
+      return sendJson(response, 200, { entries: sortLeaderboard(readLeaderboard()) });
+    }
+
     if (request.method === "POST" && pathname === "/api/validate-word") {
       const body = await readBody(request);
       const language = cleanLanguage(body.language);
@@ -390,7 +462,7 @@ async function handleApi(request, response, pathname) {
       const room = rooms.get(code);
       if (!room) return sendJson(response, 404, { error: "Room not found." });
       if (room.state !== "waiting") return sendJson(response, 409, { error: "That room has already started." });
-      if (room.players.length >= 2) return sendJson(response, 409, { error: "That room already has two players." });
+      if (room.players.length >= maxPlayersPerRoom) return sendJson(response, 409, { error: "That room already has three players." });
 
       const body = await readBody(request);
       const name = cleanName(body.name);
@@ -415,7 +487,7 @@ async function handleApi(request, response, pathname) {
 
       const body = await readBody(request);
       if (body.playerId !== room.hostId) return sendJson(response, 403, { error: "Only the room creator can start." });
-      if (room.players.length < 2) return sendJson(response, 409, { error: "Wait for the second player to join." });
+      if (room.players.length < 2) return sendJson(response, 409, { error: "Wait for at least one more player to join." });
 
       room.state = "playing";
       room.secondsLeft = room.runLength;
@@ -457,6 +529,7 @@ async function handleApi(request, response, pathname) {
 
       player.score = Math.max(0, Math.round(Number(body.score) || player.score));
       player.words = Math.max(0, Math.round(Number(body.words) || player.words));
+      saveRoomLeaderboardEntries(room);
       return sendJson(response, 200, publicRoom(room, body.playerId));
     }
 

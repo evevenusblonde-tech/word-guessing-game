@@ -19,6 +19,7 @@ const leaderboardList = document.querySelector("#leaderboardList");
 const leaderboardEmptyState = document.querySelector("#leaderboardEmptyState");
 const leaderboardScope = document.querySelector("#leaderboardScope");
 const leaderboardTabs = document.querySelectorAll("[data-leaderboard-duration]");
+const backButton = document.querySelector("#backButton");
 const shuffleButton = document.querySelector("#shuffleButton");
 const clearButton = document.querySelector("#clearButton");
 const newRoundButton = document.querySelector("#newRoundButton");
@@ -79,6 +80,7 @@ let secondsLeft = 0;
 let timerId = null;
 let gameState = "setup";
 let hasSavedCurrentRun = false;
+let currentRunId = "";
 let audioContext = null;
 let currentRunIsRecord = false;
 let bestPossibleText = "";
@@ -531,6 +533,7 @@ function formatTime(seconds) {
 function setPlayEnabled(enabled) {
   guessInput.disabled = !enabled;
   submitButton.disabled = !enabled;
+  backButton.disabled = !enabled;
   shuffleButton.disabled = !enabled;
   clearButton.disabled = !enabled;
   letterTray.querySelectorAll("button").forEach((button) => {
@@ -541,6 +544,7 @@ function setPlayEnabled(enabled) {
 function renderLetters() {
   const renderKey = `${letters.join("")}|${cleanGuess(guessInput.value)}|${gameState}`;
   if (renderKey === lastLetterRenderKey) return;
+  const shouldAnimateTiles = !lastLetterRenderKey || !usesTouchLetterEntry();
   lastLetterRenderKey = renderKey;
 
   const typedCounts = countLetters(cleanGuess(guessInput.value));
@@ -551,6 +555,7 @@ function renderLetters() {
     usedCounts[letter] = usedCounts[letter] || 0;
     const tile = document.createElement("button");
     tile.className = "letter-tile";
+    if (!shouldAnimateTiles) tile.classList.add("no-enter-animation");
     tile.type = "button";
     tile.textContent = letter;
     tile.disabled = gameState !== "playing";
@@ -667,6 +672,28 @@ function renderLeaderboard() {
   });
 
   leaderboardList.appendChild(list);
+}
+
+function sortLeaderboardEntries(entries) {
+  return entries
+    .filter((entry) => entry && entry.name)
+    .sort((a, b) => b.score - a.score || b.words - a.words || a.seconds - b.seconds || b.createdAt - a.createdAt);
+}
+
+function saveLocalLeaderboard() {
+  localStorage.setItem(leaderboardKey, JSON.stringify(sortLeaderboardEntries(leaderboard)));
+}
+
+async function loadSharedLeaderboard() {
+  try {
+    const result = await api("/api/leaderboard");
+    leaderboard = sortLeaderboardEntries(result.entries || []);
+    saveLocalLeaderboard();
+    renderLeaderboard();
+  } catch {
+    leaderboard = sortLeaderboardEntries(leaderboard);
+    renderLeaderboard();
+  }
 }
 
 function renderOnlineScoreboard() {
@@ -882,26 +909,37 @@ async function submitOnlineFinalScore() {
   }
 }
 
-function saveLeaderboardEntry() {
+async function saveLeaderboardEntry() {
   if (hasSavedCurrentRun) return;
   hasSavedCurrentRun = true;
 
-  leaderboard.push({
+  const entry = {
+    id: currentRunId || `${Date.now()}:${Math.random().toString(36).slice(2)}`,
     name: playerName,
     score: getTotalScore(),
     words: foundWords.length,
     seconds: runLength,
     letters: letterCount,
     language: gameLanguage,
+    mode: onlineRoom ? "online" : "solo",
     createdAt: Date.now()
-  });
+  };
 
-  leaderboard = ["en", "it"].flatMap((language) => [60, 120, 180].flatMap((duration) => leaderboard
-    .filter((entry) => entry.seconds === duration && (entry.language || "en") === language)
-    .sort((a, b) => b.score - a.score || b.words - a.words || a.seconds - b.seconds || b.createdAt - a.createdAt)
-    .slice(0, 10)));
+  leaderboard = sortLeaderboardEntries([...leaderboard.filter((item) => item.id !== entry.id), entry]);
+  saveLocalLeaderboard();
+  renderLeaderboard();
 
-  localStorage.setItem(leaderboardKey, JSON.stringify(leaderboard));
+  try {
+    const result = await api("/api/leaderboard", {
+      method: "POST",
+      body: JSON.stringify(entry)
+    });
+    leaderboard = sortLeaderboardEntries(result.entries || leaderboard);
+    saveLocalLeaderboard();
+    renderLeaderboard();
+  } catch {
+    // Local storage remains as a fallback when the server is not available.
+  }
 }
 
 function isNewRecord() {
@@ -1047,6 +1085,7 @@ function startRun(event) {
   lastLetterRenderKey = "";
   foundWords = [];
   hasSavedCurrentRun = false;
+  currentRunId = `solo:${Date.now()}:${Math.random().toString(36).slice(2)}`;
   currentRunIsRecord = false;
   bestPossibleText = "";
   timeUpDismissed = false;
@@ -1132,13 +1171,14 @@ async function createOnlineRoom() {
   });
 
   onlineRoom = { code: room.code, playerId: room.playerId, isHost: true };
+  currentRunId = `${room.code}:${room.playerId}`;
   foundWords = [];
   hasSavedCurrentRun = false;
   currentRunIsRecord = false;
   bestPossibleText = "";
   timeUpDismissed = false;
   lastCountdownBeepSecond = null;
-  roomStatus.textContent = `Room ${room.code} ready. Share this code, then start when both players are in.`;
+  roomStatus.textContent = `Room ${room.code} ready. Share this code. Up to 3 players can join.`;
   showInviteLink(room.code);
   startRoomButton.hidden = false;
   applyRoomState(room);
@@ -1160,6 +1200,7 @@ async function joinOnlineRoom() {
   });
 
   onlineRoom = { code: room.code, playerId: room.playerId, isHost: false };
+  currentRunId = `${room.code}:${room.playerId}`;
   foundWords = [];
   hasSavedCurrentRun = false;
   currentRunIsRecord = false;
@@ -1193,6 +1234,7 @@ function resetToSetup() {
   letters = [];
   lastLetterRenderKey = "";
   foundWords = [];
+  currentRunId = "";
   gameLanguage = getSelectedLanguage();
   letterCount = cleanLetterCount(letterCountInput.value);
   letterCountInput.value = letterCount;
@@ -1249,6 +1291,13 @@ guessInput.addEventListener("focus", () => {
     guessInput.blur();
   }
 });
+backButton.addEventListener("click", () => {
+  if (gameState !== "playing" || !usesTouchLetterEntry()) return;
+  guessInput.value = cleanGuess(guessInput.value).slice(0, -1);
+  setMessage(guessInput.value ? "Last letter removed." : "Cleared.");
+  lastLetterRenderKey = "";
+  renderLetters();
+});
 shuffleButton.addEventListener("click", () => {
   if (gameState !== "playing") return;
   letters = shuffle(letters);
@@ -1278,6 +1327,7 @@ if (touchLetterMedia.addEventListener) {
   touchLetterMedia.addListener(updateGuessInputMode);
 }
 resetToSetup();
+loadSharedLeaderboard();
 if (initialRoomCode) {
   roomCodeInput.value = initialRoomCode.toUpperCase();
 }
