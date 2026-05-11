@@ -56,6 +56,10 @@ const playAgainStatus = document.querySelector("#playAgainStatus");
 const viewScoresButton = document.querySelector("#viewScoresButton");
 const playAgainRequestButton = document.querySelector("#playAgainRequestButton");
 const playAgainButton = document.querySelector("#playAgainButton");
+const postGameMenu = document.querySelector("#postGameMenu");
+const backToResultsButton = document.querySelector("#backToResultsButton");
+const postGameRematchButton = document.querySelector("#postGameRematchButton");
+const postGameNewRunButton = document.querySelector("#postGameNewRunButton");
 
 const languageNames = {
   en: "English",
@@ -85,6 +89,7 @@ const dictionaryCache = JSON.parse(localStorage.getItem("letterRunDictionaryCach
 const dictionaryCacheVersion = "v6";
 const browserWordSetCache = {};
 const leaderboardKey = "letterRunLeaderboard";
+const playerNameKey = "letterRunPlayerName";
 const visitorKey = "letterRunVisitorId";
 const maxOnlinePlayers = 4;
 let leaderboard = JSON.parse(localStorage.getItem(leaderboardKey) || "[]");
@@ -162,6 +167,21 @@ function getVisitorId() {
 function renderVisitorCounter(count) {
   const safeCount = Math.max(0, Math.round(Number(count) || 0));
   visitorCounter.textContent = `Visitors: ${safeCount}`;
+}
+
+function rememberPlayerName() {
+  const name = cleanName(playerNameInput.value || playerName);
+  if (!name) return;
+  playerName = name;
+  playerNameInput.value = name;
+  localStorage.setItem(playerNameKey, name);
+}
+
+function restorePlayerName() {
+  const savedName = cleanName(localStorage.getItem(playerNameKey));
+  if (!savedName || playerNameInput.value) return;
+  playerName = savedName;
+  playerNameInput.value = savedName;
 }
 
 async function registerVisitor() {
@@ -906,6 +926,16 @@ function renderPlayAgainRequest() {
   playAgainRequestButton.textContent = playAgainState.requested ? "Requested" : "Play Again";
 }
 
+function renderPostGameMenu() {
+  const showMenu = gameState === "finished" && timeUpDismissed;
+  postGameMenu.hidden = !showMenu;
+  postGameRematchButton.hidden = !onlineRoom;
+  if (!showMenu) return;
+
+  postGameRematchButton.disabled = Boolean(playAgainState.requested);
+  postGameRematchButton.textContent = playAgainState.requested ? "Rematch Requested" : "Rematch";
+}
+
 function tag(text, isGold = false) {
   const item = document.createElement("span");
   item.className = isGold ? "tag gold" : "tag";
@@ -930,6 +960,7 @@ function render() {
   renderWinnerBanner();
   renderFinalPlayerRecap();
   renderPlayAgainRequest();
+  renderPostGameMenu();
   updatePlayerCountBadge();
   updateOnlineStartPanel();
   setPlayEnabled(gameState === "playing");
@@ -1236,6 +1267,7 @@ function startRun(event) {
     focusPlayerNameInput();
     return;
   }
+  rememberPlayerName();
 
   runLength = getSelectedDuration();
   gameLanguage = getSelectedLanguage();
@@ -1379,6 +1411,7 @@ async function createOnlineRoom() {
     focusPlayerNameInput();
     return;
   }
+  rememberPlayerName();
 
   runLength = getSelectedDuration();
   gameLanguage = getSelectedLanguage();
@@ -1418,6 +1451,7 @@ async function joinOnlineRoom() {
     setMessage("Enter your name and a room code.", "bad");
     return;
   }
+  rememberPlayerName();
 
   const room = await api(`/api/rooms/${code}/join`, {
     method: "POST",
@@ -1476,6 +1510,7 @@ async function requestOnlinePlayAgain() {
 }
 
 function resetToSetup() {
+  const rememberedName = cleanName(playerNameInput.value || playerName || localStorage.getItem(playerNameKey));
   clearInterval(timerId);
   timerId = null;
   gameState = "setup";
@@ -1497,6 +1532,11 @@ function resetToSetup() {
   lastCountdownBeepSecond = null;
   secondsLeft = 0;
   guessInput.value = "";
+  if (rememberedName) {
+    playerName = rememberedName;
+    playerNameInput.value = rememberedName;
+    localStorage.setItem(playerNameKey, rememberedName);
+  }
   setMessage("Enter your name, choose a run length, and start.");
   roomStatus.textContent = "Online rooms need the game server running.";
   playerCountBadge.hidden = true;
@@ -1504,10 +1544,14 @@ function resetToSetup() {
   inviteLinkInput.value = "";
   startRoomButton.hidden = true;
   render();
-  focusPlayerNameInput();
+  if (!rememberedName) {
+    focusPlayerNameInput();
+  }
 }
 
 setupForm.addEventListener("submit", startRun);
+playerNameInput.addEventListener("input", rememberPlayerName);
+playerNameInput.addEventListener("blur", rememberPlayerName);
 setupForm.addEventListener("change", () => {
   updateLetterCount(letterCountInput.value);
   selectedLeaderboardDuration = getSelectedDuration();
@@ -1538,6 +1582,14 @@ startPlayerButton.addEventListener("click", () => {
 playAgainRequestButton.addEventListener("click", () => {
   requestOnlinePlayAgain().catch((error) => setMessage(error.message, "bad"));
 });
+backToResultsButton.addEventListener("click", () => {
+  timeUpDismissed = false;
+  render();
+});
+postGameRematchButton.addEventListener("click", () => {
+  requestOnlinePlayAgain().catch((error) => setMessage(error.message, "bad"));
+});
+postGameNewRunButton.addEventListener("click", resetToSetup);
 copyInviteButton.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(inviteLinkInput.value);
@@ -1632,6 +1684,7 @@ viewScoresButton.addEventListener("click", () => {
 playAgainButton.addEventListener("click", resetToSetup);
 
 const initialRoomCode = new URLSearchParams(window.location.search).get("room");
+restorePlayerName();
 updateGuessInputMode();
 if (touchLetterMedia.addEventListener) {
   touchLetterMedia.addEventListener("change", updateGuessInputMode);
