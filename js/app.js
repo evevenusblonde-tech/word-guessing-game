@@ -305,8 +305,10 @@ function readName() {
 
 function attach(session) {
   app.session = session;
-  session.on("state", (state) => onState(state));
-  session.on("status", (status) => onStatus(status));
+  app.resultsRound = 0;
+  // Ignore anything still arriving from a room this player already left.
+  session.on("state", (state) => app.session === session && onState(state));
+  session.on("status", (status) => app.session === session && onStatus(status));
 }
 
 async function playSolo() {
@@ -368,6 +370,7 @@ function leaveRoom() {
   app.state = null;
   store.session("letterRunJoined", null);
   clearInterval(app.tick);
+  app.tick = null;
   keepScreenAwake(false);
   setBanner("");
   ui.countdownOverlay.hidden = true;
