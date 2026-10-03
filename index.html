@@ -2,237 +2,245 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Letter Run: a timed word game in English and Italian. Play solo or with up to 8 friends on any device.">
+    <meta name="theme-color" content="#147d77">
     <title>Letter Run</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23147d77'/%3E%3Ctext x='32' y='45' font-family='Arial' font-size='38' font-weight='900' text-anchor='middle' fill='white'%3EL%3C/text%3E%3C/svg%3E">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <main class="game-shell">
-      <section class="play-area" aria-labelledby="game-title">
-        <header class="masthead">
-          <div>
-            <p class="kicker">Open dictionary word game</p>
-            <h1 id="game-title">Letter Run</h1>
-            <div class="run-language" aria-label="Current language">
-              <span>Language</span>
-              <strong id="languageValue">-</strong>
-            </div>
-          </div>
-          <div class="masthead-actions">
-            <button id="howToPlayButton" class="help-button" type="button">How to Play</button>
-            <button id="newRoundButton" class="restart-button" type="button">Restart game</button>
-          </div>
-        </header>
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="kicker">Word game for everyone</p>
+          <h1>Letter Run</h1>
+        </div>
+        <div class="masthead-actions">
+          <button id="howToPlayButton" class="ghost-button" type="button">How to play</button>
+          <button id="soundButton" class="ghost-button" type="button" aria-pressed="true">Sound on</button>
+        </div>
+      </header>
 
-        <form id="setupForm" class="setup-panel">
-          <label for="playerNameInput">Player name</label>
-          <input id="playerNameInput" autocomplete="name" maxlength="24" placeholder="Your name" required>
-          <fieldset>
-            <legend>Run length</legend>
-            <div class="duration-options">
-              <label>
-                <input type="radio" name="duration" value="60" checked>
-                <span>1 min</span>
-              </label>
-              <label>
-                <input type="radio" name="duration" value="120">
-                <span>2 min</span>
-              </label>
-              <label>
-                <input type="radio" name="duration" value="180">
-                <span>3 min</span>
-              </label>
-            </div>
-          </fieldset>
-          <div class="letter-count-control">
-            <label for="letterCountInput">Letters to use</label>
-            <div class="letter-stepper">
-              <button id="letterCountMinus" type="button" aria-label="Use fewer letters">-</button>
-              <input id="letterCountInput" type="number" inputmode="numeric" min="3" max="10" value="9" required>
-              <button id="letterCountPlus" type="button" aria-label="Use more letters">+</button>
-              <span>Choose 3 to 10</span>
-            </div>
-          </div>
-          <fieldset>
-            <legend>Language</legend>
-            <div class="language-options">
-              <label>
-                <input type="radio" name="language" value="en" checked>
-                <span>English</span>
-              </label>
-              <label>
-                <input type="radio" name="language" value="it">
-                <span>Italiano</span>
-              </label>
-            </div>
-          </fieldset>
-          <button type="submit">Start Solo Run</button>
-          <div class="online-panel">
-            <div class="online-actions">
-              <button id="createRoomButton" type="button">Create Online Room</button>
-              <div class="join-row">
-                <input id="roomCodeInput" maxlength="6" placeholder="Room code" aria-label="Room code">
-                <button id="joinRoomButton" type="button">Join</button>
+      <p id="connectionBanner" class="connection-banner" role="status" hidden></p>
+
+      <!-- Home -->
+      <section id="homeScreen" class="screen" aria-labelledby="homeTitle">
+        <h2 id="homeTitle" class="sr-only">Start a game</h2>
+        <div id="inviteNotice" class="invite-notice" hidden>
+          <strong>You're invited to room <span id="inviteCode"></span></strong>
+          <span>Type your name and tap Join room.</span>
+        </div>
+
+        <div class="card setup-card">
+          <label class="field-label" for="nameInput">Your name</label>
+          <input id="nameInput" class="text-input" autocomplete="nickname" maxlength="20" placeholder="e.g. Nonna">
+
+          <div id="settingsBlock" class="settings-block">
+            <fieldset>
+              <legend>Language</legend>
+              <div class="choice-row" data-setting="language">
+                <label><input type="radio" name="language" value="it"><span>Italiano</span></label>
+                <label><input type="radio" name="language" value="en" checked><span>English</span></label>
               </div>
-            </div>
-            <p id="roomStatus" class="room-status">Online rooms need the game server running.</p>
-            <p id="playerCountBadge" class="player-count-badge" hidden>0/4 players joined</p>
-            <div id="inviteBox" class="invite-box" hidden>
-              <input id="inviteLinkInput" readonly aria-label="Room invite link">
-              <button id="copyInviteButton" type="button">Copy Link</button>
-              <button id="shareInviteButton" type="button">Share</button>
-            </div>
-            <button id="startRoomButton" type="button" hidden>Start Online Run</button>
+            </fieldset>
+            <fieldset>
+              <legend>Run length</legend>
+              <div class="choice-row" data-setting="runLength">
+                <label><input type="radio" name="runLength" value="60" checked><span>1 min</span></label>
+                <label><input type="radio" name="runLength" value="120"><span>2 min</span></label>
+                <label><input type="radio" name="runLength" value="180"><span>3 min</span></label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Letters</legend>
+              <div class="stepper">
+                <button id="lettersMinus" type="button" aria-label="Fewer letters">−</button>
+                <output id="lettersValue" aria-live="polite">9</output>
+                <button id="lettersPlus" type="button" aria-label="More letters">+</button>
+                <span class="hint">3 to 10</span>
+              </div>
+            </fieldset>
           </div>
-        </form>
 
-        <div id="onlineStartPanel" class="online-start-panel" hidden>
-          <p id="onlineStartText">The online run is ready.</p>
-          <button id="startPlayerButton" type="button">Start My Timer</button>
+          <div class="home-actions">
+            <button id="soloButton" class="primary-button" type="button">Play solo</button>
+            <button id="createRoomButton" class="primary-button alt" type="button">Create a room</button>
+          </div>
+          <p id="homeMessage" class="message" role="status" aria-live="polite"></p>
         </div>
 
-        <div class="score-strip" aria-label="Game score">
-          <div>
-            <span class="metric-label">Time</span>
-            <strong id="timerValue">-:--</strong>
+        <div class="card join-card">
+          <label class="field-label" for="codeInput">Join a room</label>
+          <div class="join-row">
+            <input id="codeInput" class="text-input code-input" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="CODE">
+            <button id="joinButton" class="primary-button" type="button">Join room</button>
           </div>
-          <div>
-            <span class="metric-label">Score</span>
-            <strong id="scoreValue">0</strong>
-          </div>
-          <div>
-            <span class="metric-label">Words</span>
-            <strong id="wordCountValue">0</strong>
-          </div>
-          <div>
-            <span class="metric-label">Letters</span>
-            <strong id="letterCountValue">-</strong>
-          </div>
-          <div>
-            <span class="metric-label">Longest</span>
-            <strong id="longestValue">-</strong>
-          </div>
-          <div>
-            <span class="metric-label">Unusual</span>
-            <strong id="unusualValue">-</strong>
-          </div>
+          <p class="hint">Got a link from someone? Just open it. No account or app needed.</p>
         </div>
 
-        <form id="guessForm" class="guess-form">
-          <label for="guessInput">Make a word from these letters</label>
-          <div class="entry-row">
-            <input id="guessInput" autocomplete="off" autocapitalize="none" spellcheck="false" minlength="2" placeholder="Type a word" required>
-            <button id="submitButton" type="submit">Guess</button>
+        <div class="card leaderboard-card">
+          <div class="card-heading">
+            <h2>Your best runs</h2>
+            <span id="leaderboardScope" class="hint"></span>
           </div>
-          <p id="message" class="message" role="status" aria-live="polite">Words can be 2 letters or longer.</p>
-        </form>
-
-        <div id="letterTray" class="letter-tray" aria-label="Available letters"></div>
-
-        <div class="controls-row">
-          <button id="backButton" class="secondary-button mobile-only-control" type="button">Back</button>
-          <button id="shuffleButton" class="secondary-button" type="button">Shuffle</button>
-          <button id="clearButton" class="secondary-button" type="button">Clear</button>
+          <div class="tabs" role="group" aria-label="Run length">
+            <button type="button" data-board="60">1 min</button>
+            <button type="button" data-board="120">2 min</button>
+            <button type="button" data-board="180">3 min</button>
+          </div>
+          <ol id="leaderboardList" class="leaderboard-list"></ol>
+          <p id="leaderboardEmpty" class="empty-state">Finished runs on this device show up here.</p>
         </div>
-
-        <div id="onlineScoreboard" class="online-scoreboard" hidden></div>
-
       </section>
 
-      <aside class="found-panel" aria-label="Found words">
-        <div class="panel-section found-section">
-          <div class="panel-heading">
-            <h2>Found Words</h2>
-            <span id="bonusHint">+15 longest, +15 unusual, +15 room longest</span>
+      <!-- Lobby -->
+      <section id="lobbyScreen" class="screen" aria-labelledby="lobbyTitle" hidden>
+        <div class="card lobby-card">
+          <div class="room-code-block">
+            <span class="field-label">Room code</span>
+            <strong id="roomCode" class="room-code">-----</strong>
           </div>
-          <ol id="wordList" class="word-list"></ol>
-          <div id="emptyState" class="empty-state">Valid guesses will appear here with their bonuses.</div>
+          <div id="inviteTools" class="invite-tools">
+            <input id="inviteLink" class="text-input" readonly aria-label="Invite link">
+            <div class="invite-buttons">
+              <button id="shareButton" class="primary-button" type="button">Share invite</button>
+              <button id="copyButton" class="ghost-button" type="button">Copy link</button>
+            </div>
+          </div>
+          <p id="lobbyMessage" class="message" role="status" aria-live="polite"></p>
         </div>
-      </aside>
 
-      <aside class="leaderboard-panel" aria-label="Historical leaderboard">
-        <div class="panel-section leaderboard-section">
-          <div class="panel-heading">
-            <h2>Leaderboard</h2>
-            <span id="leaderboardScope">Permanent history</span>
+        <div class="card">
+          <div class="card-heading">
+            <h2 id="lobbyTitle">Players</h2>
+            <span id="playerCount" class="hint"></span>
           </div>
-          <p id="visitorCounter" class="visitor-counter">Visitors: -</p>
-          <div class="leaderboard-tabs" aria-label="Leaderboard run length">
-            <button type="button" data-leaderboard-duration="60">1 min</button>
-            <button type="button" data-leaderboard-duration="120">2 min</button>
-            <button type="button" data-leaderboard-duration="180">3 min</button>
-          </div>
-          <div id="leaderboardList" class="leaderboard-list"></div>
-          <div id="leaderboardEmptyState" class="empty-state">Completed runs will be saved here.</div>
+          <ul id="lobbyPlayers" class="player-list"></ul>
         </div>
-      </aside>
 
-      <div id="timeUpBanner" class="time-up-overlay" role="dialog" aria-modal="true" aria-labelledby="timeUpTitle" hidden>
-        <div class="time-up-popup">
-          <strong id="timeUpTitle">Time is up</strong>
-          <em id="recordBadge" hidden>New Record!</em>
-          <div id="winnerBanner" class="winner-banner" hidden></div>
-          <span id="timeUpSummary">Final score: 0</span>
-          <span id="bestPossibleWord">Best possible word: checking...</span>
-          <div id="finalPlayerRecap" class="final-player-recap" hidden></div>
-          <span id="playAgainStatus" class="play-again-status" hidden>0/0 players want another run.</span>
-          <div class="time-up-actions">
-            <button id="viewScoresButton" type="button">View Leaderboard</button>
-            <button id="playAgainRequestButton" type="button" hidden>Play Again</button>
-            <button id="playAgainButton" type="button">New Run</button>
+        <div class="card">
+          <div class="card-heading">
+            <h2>Settings</h2>
+            <span id="settingsOwner" class="hint"></span>
           </div>
+          <div id="lobbySettingsSlot"></div>
+          <p id="lobbySettingsSummary" class="settings-summary"></p>
+        </div>
+
+        <div class="lobby-actions">
+          <button id="startButton" class="primary-button big" type="button">Start game</button>
+          <p id="waitingForHost" class="waiting-note" hidden>Waiting for the host to start…</p>
+          <button id="leaveLobbyButton" class="ghost-button" type="button">Leave room</button>
+        </div>
+      </section>
+
+      <!-- Play -->
+      <section id="playScreen" class="screen play-screen" aria-label="Game" hidden>
+        <div class="play-main card">
+          <div class="score-strip" aria-label="Your run">
+            <div class="timer-cell"><span class="metric-label">Time</span><strong id="timerValue">-:--</strong></div>
+            <div><span class="metric-label">Score</span><strong id="scoreValue">0</strong></div>
+            <div><span class="metric-label">Words</span><strong id="wordCountValue">0</strong></div>
+            <div><span class="metric-label">Language</span><strong id="languageValue">-</strong></div>
+          </div>
+
+          <form id="guessForm" class="guess-form" autocomplete="off">
+            <label for="guessInput" class="sr-only">Your word</label>
+            <div class="entry-row">
+              <input id="guessInput" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Type a word">
+              <button id="guessButton" type="submit">Enter</button>
+            </div>
+            <p id="playMessage" class="message" role="status" aria-live="polite">Words can be 2 letters or longer.</p>
+          </form>
+
+          <div id="letterTray" class="letter-tray" aria-label="Your letters"></div>
+
+          <div class="controls-row">
+            <button id="backspaceButton" class="ghost-button" type="button">⌫ Back</button>
+            <button id="shuffleButton" class="ghost-button" type="button">Shuffle</button>
+            <button id="clearButton" class="ghost-button" type="button">Clear</button>
+          </div>
+        </div>
+
+        <aside class="play-side">
+          <div id="liveBoardCard" class="card">
+            <div class="card-heading"><h2>Live scores</h2><span class="hint">words revealed at the end</span></div>
+            <ol id="liveBoard" class="live-board"></ol>
+          </div>
+          <div class="card">
+            <div class="card-heading"><h2>Your words</h2><span id="foundHint" class="hint">+15 longest · +15 rarest</span></div>
+            <ol id="foundList" class="found-list"></ol>
+            <p id="foundEmpty" class="empty-state">Accepted words appear here.</p>
+          </div>
+        </aside>
+      </section>
+
+      <!-- Results -->
+      <section id="resultsScreen" class="screen" aria-labelledby="resultsTitle" hidden>
+        <div class="card results-card">
+          <h2 id="resultsTitle" class="results-title">Time's up!</h2>
+          <p id="winnerLine" class="winner-line"></p>
+          <p id="recordLine" class="record-line" hidden>New personal best!</p>
+          <ol id="standings" class="standings"></ol>
+        </div>
+
+        <div class="card">
+          <div class="card-heading"><h2>Words you could have made</h2><span id="possibleCount" class="hint"></span></div>
+          <p id="bestWordsLine" class="best-words"></p>
+          <details id="missedDetails" class="missed">
+            <summary>Show more of the words nobody found</summary>
+            <p id="missedWords"></p>
+          </details>
+        </div>
+
+        <div class="results-actions">
+          <button id="nextRoundButton" class="primary-button big" type="button">Play again</button>
+          <button id="changeSettingsButton" class="ghost-button" type="button">Change settings</button>
+          <p id="waitingNextRound" class="waiting-note" hidden>Waiting for the host to start the next round…</p>
+          <button id="leaveResultsButton" class="ghost-button" type="button">Leave</button>
+        </div>
+      </section>
+
+      <div id="countdownOverlay" class="countdown-overlay" role="status" aria-live="assertive" hidden>
+        <div class="countdown-popup">
+          <span id="countdownLetters" class="countdown-sub">Get ready</span>
+          <strong id="countdownText">3</strong>
         </div>
       </div>
 
-      <div id="postGameMenu" class="post-game-menu" hidden>
-        <button id="backToResultsButton" type="button">Back to Results</button>
-        <button id="postGameRematchButton" type="button" hidden>Rematch</button>
-        <button id="postGameNewRunButton" type="button">New Run</button>
-      </div>
-
-      <div id="startCountdownBanner" class="start-countdown-overlay" role="status" aria-live="assertive" hidden>
-        <div class="start-countdown-popup">
-          <strong id="startCountdownText">Game will start in 5</strong>
-        </div>
-      </div>
-
-      <div id="howToPlayModal" class="rules-overlay" role="dialog" aria-modal="true" aria-labelledby="rulesTitle" hidden>
-        <section class="rules-popup">
-          <div class="rules-heading">
-            <strong id="rulesTitle">How to Play</strong>
-            <button id="closeRulesButton" type="button" aria-label="Close rules">Close</button>
+      <div id="rulesModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="rulesTitle" hidden>
+        <section class="modal-card">
+          <div class="card-heading">
+            <h2 id="rulesTitle">How to play</h2>
+            <button id="closeRulesButton" class="ghost-button" type="button">Close</button>
           </div>
-          <div class="rules-content">
-            <div>
-              <h3>Goal</h3>
-              <p>Find as many valid words as you can before your timer ends. Words can be as short as 2 letters.</p>
-            </div>
-            <div>
-              <h3>Letters</h3>
-              <p>Choose 3 to 10 letters at the start. Every word must use only the available letters, and each tile can only be used as many times as it appears.</p>
-            </div>
-            <div>
-              <h3>Scoring</h3>
-              <p>Each accepted word scores from its length and letter rarity: 2 points per letter, plus a rarity bonus based on the letters used.</p>
-              <ul>
-                <li>+15 for your longest word at the end of the run.</li>
-                <li>+15 for your most unusual word at the end of the run.</li>
-                <li>In online rooms, +15 goes to the player or players with the longest word among everyone.</li>
-              </ul>
-            </div>
-            <div>
-              <h3>Online Rooms</h3>
-              <p>The host opens the room, then each player taps Start My Timer when ready. Scores are finalized only after every active player has finished.</p>
-            </div>
-            <div>
-              <h3>Leaderboards</h3>
-              <p>Leaderboards are permanent, limited to the top 10, and separated by run length and language.</p>
-            </div>
+          <div class="rules">
+            <h3>Goal</h3>
+            <p>Make as many real words as you can from your letters before time runs out. Words need at least 2 letters, and each tile can be used once per word.</p>
+            <h3>Scoring</h3>
+            <p>Each word scores 2 points per letter, plus a bonus for rare letters (like Z, Q, X).</p>
+            <ul>
+              <li>+15 for your longest word</li>
+              <li>+15 for your rarest word</li>
+              <li>In a room, +15 to whoever found the longest word overall</li>
+            </ul>
+            <h3>Playing together</h3>
+            <p>One person taps <strong>Create a room</strong> and shares the invite link (or the 5-letter code). Everyone else opens the link on their own phone, tablet or computer. Up to 8 players. Nobody needs an account.</p>
+            <p>The host picks the settings and starts the game. Everyone gets the same letters and starts at the same moment. Scores update live. Words are revealed at the end.</p>
+            <p>Keep the game open on the host's device while you play. The room closes when the host leaves.</p>
+            <h3>Languages</h3>
+            <p>English and Italian. Accents don't matter: type <em>perche</em> for <em>perché</em>. Italian includes verb forms like <em>dimmelo</em> and <em>mangiarlo</em>.</p>
           </div>
         </section>
       </div>
     </main>
 
-    <script src="app.js"></script>
+    <footer class="site-footer">
+      <span>Word lists: open-source dictionaries. <a href="https://github.com/evevenusblonde-tech/word-guessing-game/blob/main/CREDITS.md">Credits</a></span>
+    </footer>
+
+    <script src="vendor/peerjs.min.js"></script>
+    <script type="module" src="js/app.js"></script>
   </body>
 </html>

@@ -1,12 +1,13 @@
 {
   "name": "letter-run",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
+  "description": "Timed word game for the browser. Static site; online rooms are peer-to-peer.",
   "scripts": {
-    "start": "node preview-server.js"
+    "start": "npx --yes http-server -p 8123 -c-1 .",
+    "build-words": "node tools/build-words.js"
   },
-  "dependencies": {
-    "an-array-of-italian-words": "^1.2.0",
+  "devDependencies": {
     "italian-words-dict": "^3.4.0",
     "word-list": "^4.0.0"
   },
