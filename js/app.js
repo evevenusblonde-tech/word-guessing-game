@@ -103,8 +103,9 @@ const app = {
   settings: store.get("letterRunSettings", { language: "en", runLength: 60, letterCount: 9 }),
   boardDuration: 60,
   soundOn: store.get("letterRunSound", true),
-  tiles: [], // letters in display order (shuffle only changes this)
+  tiles: [], // { id, letter } in display order (shuffle only changes this)
   typed: "", // current word being built
+  picked: [], // ids of the tiles used by `typed`, in order
   checking: false,
   savedRounds: new Set(),
   resultsRound: 0,
@@ -411,8 +412,9 @@ function onState(state) {
   app.state = state;
   const newRound = !previous || previous.round !== state.round || previous.letters.join("") !== state.letters.join("");
   if (newRound && state.letters.length) {
-    app.tiles = [...state.letters];
+    app.tiles = state.letters.map((letter, id) => ({ id, letter }));
     app.typed = "";
+    app.picked = [];
     app.lastBeep = null;
   }
   if (state.settings && !app.session.isHost) app.settings = { ...state.settings };
@@ -509,22 +511,41 @@ function renderFound(state) {
   }));
 }
 
+function rackLetters() {
+  return app.tiles.map((tile) => tile.letter).join("");
+}
+
+// Keeps the tapped tiles lit for the letters still in the word; letters that
+// arrived by keyboard take the first free tile with that letter.
+function syncPicked() {
+  const picked = [];
+  [...app.typed].forEach((letter, index) => {
+    const previous = app.tiles.find((tile) => tile.id === app.picked[index]);
+    if (previous && previous.letter === letter && !picked.includes(previous.id)) {
+      picked.push(previous.id);
+      return;
+    }
+    const free = app.tiles.find((tile) => tile.letter === letter && !picked.includes(tile.id) && !app.picked.slice(index + 1).includes(tile.id));
+    const any = free || app.tiles.find((tile) => tile.letter === letter && !picked.includes(tile.id));
+    if (any) picked.push(any.id);
+  });
+  app.picked = picked;
+}
+
 function renderTiles() {
-  const typedCounts = countLetters(app.typed);
-  const used = {};
+  syncPicked();
   const playing = app.state && localPhase(app.state) === "playing";
   const count = app.tiles.length || 9;
   ui.letterTray.style.setProperty("--count", count);
   // Phones: long racks wrap onto two even rows.
   ui.letterTray.style.setProperty("--narrow-count", count > 6 ? Math.ceil(count / 2) : count);
-  ui.letterTray.replaceChildren(...app.tiles.map((letter) => {
+  ui.letterTray.replaceChildren(...app.tiles.map(({ id, letter }) => {
     const tile = el("button", "tile", letter);
     tile.type = "button";
     tile.disabled = !playing;
     tile.setAttribute("aria-label", letter);
-    used[letter] = (used[letter] || 0) + 1;
-    if (used[letter] <= (typedCounts[letter] || 0)) tile.classList.add("used");
-    tile.addEventListener("click", () => addLetter(letter));
+    if (app.picked.includes(id)) tile.classList.add("used");
+    tile.addEventListener("click", () => addLetter(letter, id));
     return tile;
   }));
   ui.guessInput.value = app.typed;
@@ -586,12 +607,14 @@ function focusGuess() {
   if (!usesTouchEntry()) ui.guessInput.focus();
 }
 
-function addLetter(letter) {
+function addLetter(letter, tileId) {
   if (localPhase(app.state) !== "playing") return;
   const typedCounts = countLetters(app.typed);
-  const rack = countLetters(app.tiles.join(""));
+  const rack = countLetters(rackLetters());
   if ((typedCounts[letter] || 0) >= (rack[letter] || 0)) return;
+  if (tileId !== undefined && app.picked.includes(tileId)) return;
   app.typed += letter;
+  if (tileId !== undefined) app.picked.push(tileId);
   renderTiles();
   focusGuess();
 }
@@ -798,7 +821,7 @@ function bindEvents() {
   ui.guessForm.addEventListener("submit", submitGuess);
   ui.guessInput.addEventListener("input", () => {
     // Typing on a keyboard: keep only letters that are on the rack.
-    const rack = countLetters(app.tiles.join(""));
+    const rack = countLetters(rackLetters());
     const counts = {};
     app.typed = [...cleanWord(ui.guessInput.value)].filter((letter) => {
       counts[letter] = (counts[letter] || 0) + 1;
